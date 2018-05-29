@@ -11,6 +11,7 @@ KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
 - PC
 - Stack
 - Global variables (table begins at word 6, or byte 12)
+- Local variables
 - Hardware interaction
 - Memory map - Done
 - R_O - Done
@@ -20,9 +21,11 @@ KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
 -- Predictable
 -- True random
 - ZSCII
-- Reading instructions
+- Reading instructions - Branching and some other stuff left
 - Executing instructions
-- Decode packed addresses - Done?
+- Decode packed addresses - Done
+- Calling routines - Setting initial values
+- Calling routines - Managing the routine call-stack
 
 ** Opcodes
 - All
