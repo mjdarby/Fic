@@ -3,4 +3,7 @@ __pycache__
 *~
 *.z*
 *.pdf
+*.txt
+*.dis
+*.inf
 crontab

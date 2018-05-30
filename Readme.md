@@ -1,13 +1,12 @@
-* What is it
-KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
+# What is it
+Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python.
 
-* TODOs
-
-** Read-write
+# TODOs
+## Read-write
 - Reading story file
 - Writing save files
 
-** Architecture
+## Architecture
 - PC
 - Stack
 - Global variables (table begins at word 6, or byte 12)
@@ -17,9 +16,9 @@ KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
 - R_O - Done
 - R_S - Done
 - Random number generator
--- Seeding
--- Predictable
--- True random
+  - Seeding
+  - Predictable
+  - True random
 - ZSCII
 - Reading instructions - Branching and some other stuff left
 - Executing instructions
@@ -27,8 +26,8 @@ KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
 - Calling routines - Setting initial values
 - Calling routines - Managing the routine call-stack
 
-** Opcodes
-- All
-- Factor out the argument decoding
+## Opcodes
+- Factor out the argument decoding - Done
 
-Rename 'getNumber' to 'getWord'?
+## Maybes
+- Rename 'getNumber' to 'getWord'?
