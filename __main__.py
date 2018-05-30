@@ -5,7 +5,10 @@ from enum import Enum
 Form = Enum('Form', 'Short Long Variable Extended')
 Operand = Enum('Operand', 'ZeroOP OneOP TwoOP VAR')
 OperandType = Enum('OperandType', 'Large Small Variable')
-# Main
+
+# Logging
+tracefile = open('trace.txt', 'w')
+logfile = open('full_log.txt', 'w')
 
 # Instruction
 class Instruction:
@@ -28,7 +31,7 @@ class Instruction:
     self.instr_length = instr_length
 
   def run(self, main_memory):
-    print("Running opcode: " + str(self.opcode))
+    print("Running opcode: " + str(self.opcode), file=tracefile)
     if (self.opcode == 'call'):
       main_memory.call(self.operand_types, self.operands, self.store_variable, self.instr_length)
     elif (self.opcode == 'add'):
@@ -43,24 +46,29 @@ class Instruction:
       main_memory.loadw(self)
     elif (self.opcode == 'storew'):
       main_memory.storew(self)
+    elif (self.opcode == 'store'):
+      main_memory.store(self)
+    elif (self.opcode == 'put_prop'):
+      main_memory.put_prop(self)
     elif (self.opcode == 'jump'):
       main_memory.jump(self)
+    elif (self.opcode == 'test_attr'):
+      main_memory.test_attr(self)
     elif (self.opcode == 'sub'):
       main_memory.sub(self)
     else:
       raise Exception("Not implemented")
 
   def print_debug(self):
-    print("Printing instr debug")
-    print(self.opcode)
-    print(self.operand_types)
-    print(self.operands)
+    print("Printing instr debug", file=logfile)
+    print(self.opcode, file=logfile)
+    print(self.operand_types, file=logfile)
+    print(self.operands, file=logfile)
     for operand in self.operands:
-      print(hex(operand))
-    print(self.store_variable)
-    print(self.branch_offset)
-    print(self.text_to_print)
-
+      print(hex(operand), file=logfile)
+    print(self.store_variable, file=logfile)
+    print(self.branch_offset, file=logfile)
+    print(self.text_to_print, file=logfile)
 
 # StoryLoader returns a memory map
 class StoryLoader:
@@ -75,10 +83,10 @@ class RoutineCall:
     self.return_address = 0x0000
 
   def print_debug(self):
-    print("Routine call")
-    print(self.local_variables)
+    print("Routine call", file=logfile)
+    print(self.local_variables, file=logfile)
     for var in self.local_variables:
-      print(var)
+      print(var, file=logfile)
 
 # Utility
 def getSignedEquivalent(num):
@@ -98,24 +106,18 @@ class Memory:
     self.routine_offset = self.mem[0x28]
     self.string_offset = self.mem[0x2a]
     self.global_table_start = self.getNumber(0x0c)
+    self.object_table_start = self.getNumber(0x0a)
     self.stack = []
     self.routine_callstack = []
     self.getFirstAddress()
-    print(self.version)
-    print(self.static)
-    print(self.high)
+    print(self.version, file=logfile)
+    print(self.static, file=logfile)
+    print(self.high, file=logfile)
 
   # opcodes
   def ret(self, instruction):
     # Return value in parameter
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers)
+    decoded_opers  = self.decodeOperands(instruction)
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
     # Return into store variable and...
@@ -124,88 +126,92 @@ class Memory:
     self.pc = current_routine.return_address
 
   def je(self, instruction):
-    print("je")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers)
+    print("je", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
     self.pc += instruction.instr_length # Move past the instr regardless
     if decoded_opers[0] == decoded_opers[1] and instruction.branch_on_true:
       self.pc += instruction.branch_offset - 2
-      print("je:branch_on_true:jumped to " + hex(self.pc))
+      print("je:branch_on_true:jumped to " + hex(self.pc), file=logfile)
     elif decoded_opers[0] != decoded_opers[1] and not instruction.branch_on_true:
       self.pc += instruction.branch_offset - 2
-      print("je:branch_on_false:jumped to " + hex(self.pc))
+      print("je:branch_on_false:jumped to " + hex(self.pc), file=logfile)
 
   def jz(self, instruction):
-    print("jz")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers)
+    print("jz", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
     self.pc += instruction.instr_length # Move past the instr regardless
     if decoded_opers[0] == 0 and instruction.branch_on_true:
       self.pc += instruction.branch_offset - 2
-      print("jz:branch_on_true:jumped to " + hex(self.pc))
+      print("jz:branch_on_true:jumped to " + hex(self.pc), file=logfile)
     elif decoded_opers[0] != 0 and not instruction.branch_on_true:
       self.pc += instruction.branch_offset - 2
-      print("jz:branch_on_false:jumped to " + hex(self.pc))
+      print("jz:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+
+  def test_attr(self, instruction):
+    print("test_attr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_number = decoded_opers[0]
+    attrib_number = decoded_opers[1]
+    print("obj_number: " + str(obj_number), file=logfile)
+    print("attrib_number: " + str(attrib_number), file=logfile)
+    print("jump offset: " + hex(instruction.branch_offset), file=logfile)
+    print("jump on true: " + str(instruction.branch_on_true), file=logfile)
+    attrib_set = self.isAttributeSet(obj_number, attrib_number)
+    self.pc += instruction.instr_length # Move past the instr regardless
+    if attrib_set and instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("test_attr:branch_on_true:jumped to " + hex(self.pc), file=logfile)
+    elif not attrib_set and not instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("test_attr:branch_on_false:jumped to " + hex(self.pc), file=logfile)
 
   def jump(self, instruction):
-    print("jump")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers[0])
-    print(getSignedEquivalent(decoded_opers[0]))
+    print("jump", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    print(decoded_opers[0], file=logfile)
+    print(getSignedEquivalent(decoded_opers[0]), file=logfile)
     self.pc += instruction.instr_length + getSignedEquivalent(decoded_opers[0]) - 2
 
+  def put_prop(self, instruction):
+    print("put_prop", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    print(decoded_opers, file=logfile)
+    print("Obj number: " + str(decoded_opers[0]), file=logfile)
+    print("Prop number: " + str(decoded_opers[1]), file=logfile)
+    print("Value: " + hex(decoded_opers[2]), file=logfile)
+    self.setProperty(decoded_opers[0], decoded_opers[1], decoded_opers[2])
+    self.pc += instruction.instr_length # Move past the instr
+
+  def store(self, instruction):
+    print("store", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    target_var = decoded_opers[0]
+    value = decoded_opers[1]
+    print("target_var: " + hex(target_var), file=logfile)
+    print("value: " + str(value), file=logfile)
+    self.setVariable(target_var, value)
+    self.pc += instruction.instr_length # Move past the instr
+
   def loadw(self, instruction):
-    print("loadw")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers)
+    print("loadw", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
     base_addr = decoded_opers[0]
     idx = decoded_opers[1]
-    print("Base addr: " + hex(base_addr))
-    print("Idx: " + hex(idx))
-    print("Store target: " + hex(instruction.store_variable))
+    print("Base addr: " + hex(base_addr), file=logfile)
+    print("Idx: " + hex(idx), file=logfile)
+    print("Store target: " + hex(instruction.store_variable), file=logfile)
     self.setVariable(instruction.store_variable, self.mem[base_addr + (2*idx)])
     self.pc += instruction.instr_length # Move past the instr
 
   def storew(self, instruction):
-    print("storew")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-    print(decoded_opers)
+    print("storew", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
     base_addr = decoded_opers[0]
     idx = decoded_opers[1]
     value = decoded_opers[2]
-    print("Base addr: " + hex(base_addr))
-    print("Idx: " + hex(idx))
-    print("Value to store: " + hex(value))
+    print("Base addr: " + hex(base_addr), file=logfile)
+    print("Idx: " + hex(idx), file=logfile)
+    print("Value to store: " + hex(value), file=logfile)
     # Split value into bytes
     top_byte = (value & 0xff00) >> 8
     bottom_byte = value & 0x00ff
@@ -214,33 +220,23 @@ class Memory:
     self.pc += instruction.instr_length # Move past the instr
 
   def add(self, instruction):
-      the_sum = 0
-      oper_zip = zip(instruction.operand_types, instruction.operands)
-      for operand_pair in oper_zip:
-        if (operand_pair[0] == OperandType.Variable):
-          print("add: variable op val: " + str(self.getVariable(operand_pair[1])))
-          the_sum += getSignedEquivalent(self.getVariable(operand_pair[1]))
-        else:
-          the_sum += getSignedEquivalent(operand_pair[1])
-      print("add: sum: " + str(the_sum))
-      self.setVariable(instruction.store_variable, the_sum)
-      self.pc += instruction.instr_length
+    print("add", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    print(decoded_opers, file=logfile)
+    self.setVariable(instruction.store_variable, decoded_opers[0] + decoded_opers[1])
+    self.pc += instruction.instr_length
 
   def sub(self, instruction):
-    print("sub")
-    oper_zip = zip(instruction.operand_types, instruction.operands)
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(getSignedEquivalent(self.getVariable(operand_pair[1])))
-      else:
-        decoded_opers.append(getSignedEquivalent(operand_pair[1]))
-    print(decoded_opers)
+    print("sub", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    print(decoded_opers, file=logfile)
     self.setVariable(instruction.store_variable, decoded_opers[0] - decoded_opers[1])
     self.pc += instruction.instr_length
 
   def call(self, operand_types, operands, store_variable, instr_length):
-    print("Routine call during run")
+    print("Routine call during run", file=logfile)
     # Create a new routine object
     new_routine = RoutineCall()
     # Grab the return addr
@@ -248,10 +244,10 @@ class Memory:
     new_routine.store_variable = store_variable
     # First operand is calling address
     routine_address = self.unpackAddress(operands[0], True)
-    print("Routine address: " + hex(routine_address))
+    print("Routine address: " + hex(routine_address), file=logfile)
     # How many local variables?
     local_var_count = self.getSmallNumber(routine_address)
-    print("Total local variables: " + str(local_var_count))
+    print("Total local variables: " + str(local_var_count), file=logfile)
     # For older versions, we have initial values for these variables
     # Newer versions use zero instead
     for i in range(local_var_count):
@@ -263,31 +259,43 @@ class Memory:
 
     # Now set the locals as per the operands
     oper_zip = list(zip(operand_types, operands))
-    oper_zip.pop(0)
     decoded_opers  = []
     for operand_pair in oper_zip:
       if (operand_pair[0] == OperandType.Variable):
         decoded_opers.append(self.getVariable(operand_pair[1]))
       else:
         decoded_opers.append(operand_pair[1])
+
+    decoded_opers.pop(0)
     for index, operand in enumerate(decoded_opers):
       new_routine.local_variables[index] = operand
 
-    print("Called with these values:")
-    print(new_routine.local_variables)
+    print("Called with these values:", file=logfile)
+    print(new_routine.local_variables, file=logfile)
 
     # Now set the pc to the instruction after the header
     new_pc = routine_address + 1
     if (self.version < 5):
       new_pc += 2 * local_var_count
-    print("Next instruction at: " + hex(new_pc))
+    print("Next instruction at: " + hex(new_pc), file=logfile)
     self.pc = new_pc
 
     # Finally, add the routine to the stack
     self.routine_callstack.append(new_routine)
-    print(self.routine_callstack)
+    print(self.routine_callstack, file=logfile)
 
     new_routine.print_debug()
+
+  def decodeOperands(self, instruction):
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers, file=logfile)
+    return decoded_opers
 
   def getVariable(self, variable_number):
     if (variable_number == 0x00):
@@ -326,7 +334,7 @@ class Memory:
     return self.getNumber(self.getGlobalVariableAddr(variable_number))
 
   def setGlobalVariable(self, variable_number, value):
-    print("Setting global variable")
+    print("Setting global variable", file=logfile)
     # TODO: If negative, convert to 2's Complement
     # Split value into two bytes
     top_byte = (value & 0xff00) >> 8
@@ -334,19 +342,19 @@ class Memory:
     top_addr = self.global_table_start + (variable_number * 2)
     self.mem[top_addr] = top_byte
     self.mem[top_addr + 1] = bottom_byte
-    print("Top byte:")
-    print(hex(self.mem[top_addr]))
-    print("Bottom byte:")
-    print(hex(self.mem[top_addr+1]))
+    print("Top byte:", file=logfile)
+    print(hex(self.mem[top_addr]), file=logfile)
+    print("Bottom byte:", file=logfile)
+    print(hex(self.mem[top_addr+1]), file=logfile)
 
   # First address depends on version
   def getFirstAddress(self):
-    print("getFirstAddress")
+    print("getFirstAddress", file=logfile)
     if (self.version != 6):
       self.pc = self.getNumber(0x06)
     else:
       self.pc = self.unpackAddress(self.getNumber(0x06), True)
-    print(self.pc)
+    print(self.pc, file=logfile)
 
   # Most numbers are stored as two adjacent bytes
   def getNumber(self, addr):
@@ -359,11 +367,11 @@ class Memory:
   # Read an instruction (probably at PC)
   # Bit complicated due to versioning...
   def getInstruction(self, addr):
-    print("getInstruction at " + hex(addr))
+    print("getInstruction at " + hex(addr), file=logfile)
     next_byte = addr
     # First, determine the opcode
     first_opcode_byte = self.mem[addr]
-    print("Opcode:" + str(first_opcode_byte) + "(" + hex(first_opcode_byte) + ")")
+    print("Opcode:" + str(first_opcode_byte) + "(" + hex(first_opcode_byte) + ")", file=logfile)
     next_byte += 1
     opcode = None
     form = None
@@ -388,7 +396,7 @@ class Memory:
     else:
       form = Form.Long
 
-    print("Got form: " + form.name)
+    print("Got form: " + form.name, file=logfile)
 
     # Figure out the operand count and type(s)
     opcount = self.getOperandCount(form, first_opcode_byte)
@@ -447,6 +455,88 @@ class Memory:
                        text_to_print,
                        instr_length)
 
+  def getPropertyDefault(self, prop_number):
+    # Prop_number >= 0 < 32 for versions 1-3, < 64 for version 4
+    start_addr = self.object_table_start
+    prop_addr = self.object_table_start + (prop_number * 2)
+    prop_default = getNumber(prop_addr)
+    return prop_default
+
+  def getObjSize(self):
+    if self.version > 3:
+      return 14
+    return 9
+
+  def getObjectAddress(self, obj_number):
+    num_prop_defaults = 31
+    if (self.version > 3):
+      num_prop_defaults = 63
+    obj_tree_start_address = self.object_table_start + (num_prop_defaults * 2)
+    obj_address = obj_tree_start_address + (obj_number * self.getObjSize())
+    return obj_address
+
+  def isAttributeSet(self, obj_number, attrib_number):
+    obj_addr = self.getObjectAddress(obj_number)
+    attrib_bit = 1 << (attrib_number % 16)
+    first_two_attribute_bytes = self.getNumber(obj_addr)
+    last_two_attribute_bytes = self.getNumber(obj_addr+2)
+    if (attrib_number < 16):
+      return attrib_bit & first_two_attribute_bytes == attrib_bit
+    else: # attrib_number >=16 && < 32
+      return attrib_bit & last_two_attribute_bytes == attrib_bit
+
+  def getPropertyTableAddress(self, obj_number):
+    obj_addr = self.getObjectAddress(obj_number)
+    prop_table_offset = 7
+    if (self.version > 3):
+      prop_table_offset = 9
+    prop_table_address = self.getNumber(prop_table_offset)
+    return prop_table_address
+
+  def getPropertyListAddress(self, obj_number):
+    prop_table_address = self.getPropertyTableAddress(obj_number)
+    short_name_length = self.getSmallNumber(prop_table_address)
+    prop_list_start = prop_table_address + short_name_length + 1
+    return prop_list_start
+
+  def getPropertyAddress(self, obj_number, prop_number):
+    if (self.version < 4):
+      return self.getPropertyAddressV1(obj_number, prop_number)
+    else:
+      return self.getPropertyAddressV4(obj_number, prop_number)
+
+  def getPropertyAddressV1(self, obj_number, prop_number):
+    prop_list_address = self.getPropertyListAddress(obj_number)
+    size_byte_addr = prop_list_address
+    size_byte = self.getSmallNumber(size_byte_addr)
+    while (size_byte != 0):
+      cur_prop_number = 0b00011111 & size_byte
+      if (prop_number == cur_prop_number):
+        return size_byte_addr
+      # Get the next property
+      prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+      size_byte_addr += prop_bytes
+      size_byte = self.getSmallNumber(size_byte_addr)
+    return 0
+
+  def setProperty(self, obj_number, prop_number, value):
+    prop_address = self.getPropertyAddress(obj_number, prop_number)
+    size_byte_addr = prop_address
+    size_byte = self.getSmallNumber(size_byte_addr)
+    cur_prop_number = 0b00011111 & size_byte
+    prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+    top_byte = (value & 0xff00) >> 8
+    bottom_byte = value & 0x00ff
+    if (prop_bytes == 2):
+      self.mem[prop_address + 1] = top_byte
+      self.mem[prop_address + 2] = bottom_byte
+    elif (prop_bytes == 1):
+      self.mem[prop_address + 1] = bottom_byte
+
+  def getPropertyAddressV4(self, obj_number, prop_number):
+    prop_list_address = getPropertyListAddress(obj_number)
+    raise Exception("To implement")
+
   def getOperandCount(self, form, opcode_byte):
     if (form == Form.Long):
       opcount = Operand.TwoOP
@@ -465,7 +555,7 @@ class Memory:
     return opcount
 
   def getOperandType(self, form, opcode_bytes):
-    print("getOperandType: " + bin(opcode_bytes))
+    print("getOperandType: " + bin(opcode_bytes), file=logfile)
     if (form == Form.Short):
       if (opcode_bytes & 0b00100000 == 0b00100000):
         return [OperandType.Variable]
@@ -518,23 +608,27 @@ class Memory:
       return 8*packedAddress
 
   def getOpcode(self, byte, operand_type):
-    print("getOpcode")
-    print("last five bits: " + hex(byte & 0b00011111))
-    print("last four bits: " + hex(byte & 0b00011111))
+    print("getOpcode", file=logfile)
+    print("last five bits: " + hex(byte & 0b00011111), file=logfile)
+    print("last four bits: " + hex(byte & 0b00011111), file=logfile)
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
-        return "je"
+      return "je"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 10):
+      return "test_attr"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 13):
+      return "store"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 15):
-        return "loadw"
+      return "loadw"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 20):
-        return "add"
+      return "add"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
-        return "sub"
+      return "sub"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
-        return "jump"
+      return "jump"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
-        return "jz"
+      return "jz"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
-        return "ret"
+      return "ret"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
@@ -542,20 +636,22 @@ class Memory:
         return "call"
     if (operand_type == Operand.VAR and byte == 225):
       return "storew"
+    if (operand_type == Operand.VAR and byte == 227):
+      return "put_prop"
     pass
 
   def getExtendedOpcode(self, byte):
-    print("ExtendedOpcode")
+    print("ExtendedOpcode", file=logfile)
     pass
 
   def print_debug(self):
-    print("-------------")
-    print("Stack:")
-    print(self.stack)
+    print("-------------", file=logfile)
+    print("Stack:", file=logfile)
+    print(self.stack, file=logfile)
     if (len(self.routine_callstack) > 0):
-      print("Current routine state:")
-      print(self.routine_callstack[-1].print_debug())
-    print("-------------")
+      print("Current routine state:", file=logfile)
+      print(self.routine_callstack[-1].print_debug(), file=logfile)
+    print("-------------", file=logfile)
 
 def needsStoreVariable(opcode, version):
   if (opcode == "call" and version < 4):
@@ -572,6 +668,8 @@ def needsBranchOffset(opcode, version):
   if (opcode == "je"):
     return True
   if (opcode == "jz"):
+    return True
+  if (opcode == "test_attr"):
     return True
   return False
 
