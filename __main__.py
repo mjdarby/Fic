@@ -16,7 +16,8 @@ class Instruction:
                store_variable,
                branch_on_true,
                branch_offset,
-               text_to_print):
+               text_to_print,
+               instr_length):
     self.opcode = opcode
     self.operand_types = operand_types
     self.operands = operands
@@ -24,15 +25,28 @@ class Instruction:
     self.branch_on_true = branch_on_true
     self.branch_offset = branch_offset
     self.text_to_print = text_to_print
+    self.instr_length = instr_length
 
   def run(self, main_memory):
     print("Running opcode: " + str(self.opcode))
     if (self.opcode == 'call'):
-      main_memory.call(self.operand_types, self.operands, self.store_variable)
+      main_memory.call(self.operand_types, self.operands, self.store_variable, self.instr_length)
     elif (self.opcode == 'add'):
       main_memory.add(self)
     elif (self.opcode == 'je'):
       main_memory.je(self)
+    elif (self.opcode == 'jz'):
+      main_memory.jz(self)
+    elif (self.opcode == 'ret'):
+      main_memory.ret(self)
+    elif (self.opcode == 'loadw'):
+      main_memory.loadw(self)
+    elif (self.opcode == 'storew'):
+      main_memory.storew(self)
+    elif (self.opcode == 'jump'):
+      main_memory.jump(self)
+    elif (self.opcode == 'sub'):
+      main_memory.sub(self)
     else:
       raise Exception("Not implemented")
 
@@ -66,17 +80,24 @@ class RoutineCall:
     for var in self.local_variables:
       print(var)
 
+# Utility
+def getSignedEquivalent(num):
+  if num > 0x7FFF:
+    num = 0x10000 - num
+    num = -num
+  return num
+
 # Memory - broken up into dynamic/high/static
 class Memory:
   def __init__(self, memory_print):
-    self.mem = memory_print
+    self.mem = bytearray(memory_print)
     self.dynamic = 0
     self.static = self.mem[0x0e]
     self.high = self.mem[0x04]
     self.version = self.mem[0x00]
     self.routine_offset = self.mem[0x28]
     self.string_offset = self.mem[0x2a]
-    self.global_table_start = self.mem[0x0c]
+    self.global_table_start = self.getNumber(0x0c)
     self.stack = []
     self.routine_callstack = []
     self.getFirstAddress()
@@ -85,6 +106,23 @@ class Memory:
     print(self.high)
 
   # opcodes
+  def ret(self, instruction):
+    # Return value in parameter
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers)
+    # Pop the current routine so setVariable is targeting the right set of locals
+    current_routine = self.routine_callstack.pop()
+    # Return into store variable and...
+    self.setVariable(current_routine.store_variable, decoded_opers[0])
+    # ... kick execution home
+    self.pc = current_routine.return_address
+
   def je(self, instruction):
     print("je")
     oper_zip = zip(instruction.operand_types, instruction.operands)
@@ -95,7 +133,7 @@ class Memory:
       else:
         decoded_opers.append(operand_pair[1])
     print(decoded_opers)
-    self.pc += 4 # Move past the instr regardless
+    self.pc += instruction.instr_length # Move past the instr regardless
     if decoded_opers[0] == decoded_opers[1] and instruction.branch_on_true:
       self.pc += instruction.branch_offset - 2
       print("je:branch_on_true:jumped to " + hex(self.pc))
@@ -103,25 +141,111 @@ class Memory:
       self.pc += instruction.branch_offset - 2
       print("je:branch_on_false:jumped to " + hex(self.pc))
 
+  def jz(self, instruction):
+    print("jz")
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers)
+    self.pc += instruction.instr_length # Move past the instr regardless
+    if decoded_opers[0] == 0 and instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("jz:branch_on_true:jumped to " + hex(self.pc))
+    elif decoded_opers[0] != 0 and not instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("jz:branch_on_false:jumped to " + hex(self.pc))
+
+  def jump(self, instruction):
+    print("jump")
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers[0])
+    print(getSignedEquivalent(decoded_opers[0]))
+    self.pc += instruction.instr_length + getSignedEquivalent(decoded_opers[0]) - 2
+
+  def loadw(self, instruction):
+    print("loadw")
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers)
+    base_addr = decoded_opers[0]
+    idx = decoded_opers[1]
+    print("Base addr: " + hex(base_addr))
+    print("Idx: " + hex(idx))
+    print("Store target: " + hex(instruction.store_variable))
+    self.setVariable(instruction.store_variable, self.mem[base_addr + (2*idx)])
+    self.pc += instruction.instr_length # Move past the instr
+
+  def storew(self, instruction):
+    print("storew")
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    print(decoded_opers)
+    base_addr = decoded_opers[0]
+    idx = decoded_opers[1]
+    value = decoded_opers[2]
+    print("Base addr: " + hex(base_addr))
+    print("Idx: " + hex(idx))
+    print("Value to store: " + hex(value))
+    # Split value into bytes
+    top_byte = (value & 0xff00) >> 8
+    bottom_byte = value & 0x00ff
+    self.mem[base_addr + (2*idx)] = top_byte
+    self.mem[base_addr + (2*idx) + 1] = bottom_byte
+    self.pc += instruction.instr_length # Move past the instr
+
   def add(self, instruction):
       the_sum = 0
       oper_zip = zip(instruction.operand_types, instruction.operands)
       for operand_pair in oper_zip:
         if (operand_pair[0] == OperandType.Variable):
           print("add: variable op val: " + str(self.getVariable(operand_pair[1])))
-          the_sum += self.getVariable(operand_pair[1])
+          the_sum += getSignedEquivalent(self.getVariable(operand_pair[1]))
         else:
-          the_sum += operand_pair[1]
+          the_sum += getSignedEquivalent(operand_pair[1])
       print("add: sum: " + str(the_sum))
       self.setVariable(instruction.store_variable, the_sum)
-      self.pc += 2*len(instruction.operands)
+      self.pc += instruction.instr_length
 
-  def call(self, operand_types, operands, store_variable):
+  def sub(self, instruction):
+    print("sub")
+    oper_zip = zip(instruction.operand_types, instruction.operands)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(getSignedEquivalent(self.getVariable(operand_pair[1])))
+      else:
+        decoded_opers.append(getSignedEquivalent(operand_pair[1]))
+    print(decoded_opers)
+    self.setVariable(instruction.store_variable, decoded_opers[0] - decoded_opers[1])
+    self.pc += instruction.instr_length
+
+  def call(self, operand_types, operands, store_variable, instr_length):
     print("Routine call during run")
     # Create a new routine object
     new_routine = RoutineCall()
     # Grab the return addr
-    new_routine.return_address = self.pc + 2
+    new_routine.return_address = self.pc + instr_length
+    new_routine.store_variable = store_variable
     # First operand is calling address
     routine_address = self.unpackAddress(operands[0], True)
     print("Routine address: " + hex(routine_address))
@@ -136,6 +260,21 @@ class Memory:
         new_routine.local_variables.append(variable_value)
       else:
         new_routine.local_variables.append(0)
+
+    # Now set the locals as per the operands
+    oper_zip = list(zip(operand_types, operands))
+    oper_zip.pop(0)
+    decoded_opers  = []
+    for operand_pair in oper_zip:
+      if (operand_pair[0] == OperandType.Variable):
+        decoded_opers.append(self.getVariable(operand_pair[1]))
+      else:
+        decoded_opers.append(operand_pair[1])
+    for index, operand in enumerate(decoded_opers):
+      new_routine.local_variables[index] = operand
+
+    print("Called with these values:")
+    print(new_routine.local_variables)
 
     # Now set the pc to the instruction after the header
     new_pc = routine_address + 1
@@ -152,7 +291,7 @@ class Memory:
 
   def getVariable(self, variable_number):
     if (variable_number == 0x00):
-      return popStack()
+      return self.popStack()
     if (variable_number > 0x00 and variable_number < 0x10):
       return self.getLocalVariable(variable_number - 0x01)
     else:
@@ -160,17 +299,17 @@ class Memory:
 
   def setVariable(self, variable_number, value):
     if (variable_number == 0x00):
-      return pushStack(value)
+      return self.pushStack(value)
     if (variable_number > 0x00 and variable_number < 0x10):
       return self.setLocalVariable(variable_number - 0x01, value)
     else:
       return self.setGlobalVariable(variable_number - 0x10, value)
 
   def pushStack(self, value):
-    stack.append(value)
+    self.stack.append(value)
 
   def popStack(self):
-    return stack.pop()
+    return self.stack.pop()
 
   def getLocalVariable(self, variable_number):
     top_routine = self.routine_callstack[-1]
@@ -184,16 +323,21 @@ class Memory:
     return self.global_table_start + (variable_number * 2)
 
   def getGlobalVariableValue(self, variable_number):
-    return self.mem[self.getGlobalVariableAddr(variable_number)]
+    return self.getNumber(self.getGlobalVariableAddr(variable_number))
 
   def setGlobalVariable(self, variable_number, value):
+    print("Setting global variable")
+    # TODO: If negative, convert to 2's Complement
     # Split value into two bytes
-    top_byte = (value & 0x1111111100000000) >> 8
-    bottom_byte = value & 0x11111111
+    top_byte = (value & 0xff00) >> 8
+    bottom_byte = value & 0x00ff
     top_addr = self.global_table_start + (variable_number * 2)
     self.mem[top_addr] = top_byte
     self.mem[top_addr + 1] = bottom_byte
-
+    print("Top byte:")
+    print(hex(self.mem[top_addr]))
+    print("Bottom byte:")
+    print(hex(self.mem[top_addr+1]))
 
   # First address depends on version
   def getFirstAddress(self):
@@ -292,13 +436,16 @@ class Memory:
         branch_offset = ((branch_bbyte & 0b00011111) << 5) + branch_byte_two
         next_byte += 1
 
+    instr_length = next_byte - addr
+
     return Instruction(opcode,
                        operand_types,
                        operands,
                        store_variable,
                        branch_on_true,
                        branch_offset,
-                       text_to_print)
+                       text_to_print,
+                       instr_length)
 
   def getOperandCount(self, form, opcode_byte):
     if (form == Form.Long):
@@ -318,14 +465,14 @@ class Memory:
     return opcount
 
   def getOperandType(self, form, opcode_bytes):
-    print("getOperandType: " + str(opcode_bytes))
+    print("getOperandType: " + bin(opcode_bytes))
     if (form == Form.Short):
-      if (opcode_bytes & 0b01000000 == 0b01000000):
+      if (opcode_bytes & 0b00100000 == 0b00100000):
         return [OperandType.Variable]
+      elif (opcode_bytes & 0b00010000 == 0b00010000):
+        return [OperandType.Small]
       elif (opcode_bytes & 0b00000000 == 0b00000000):
         return [OperandType.Large]
-      elif (opcode_bytes & 0b00100000 == 0b00100000):
-        return [OperandType.Small]
     elif (form == Form.Long):
       operand_types = []
       if (opcode_bytes & 0b01000000 == 0b01000000):
@@ -350,7 +497,7 @@ class Memory:
       if (opcode_bytes & 0b00001100 == 0b00001100):
         return operand_types
       else:
-        operand_types.append(getOperandTypeFromBytes((opcode_bytes & 0b00110000) >> 2))
+        operand_types.append(getOperandTypeFromBytes((opcode_bytes & 0b00001100) >> 2))
       if (opcode_bytes & 0b00000011 == 0b00000011):
         return operand_types
       else:
@@ -372,30 +519,59 @@ class Memory:
 
   def getOpcode(self, byte, operand_type):
     print("getOpcode")
+    print("last five bits: " + hex(byte & 0b00011111))
+    print("last four bits: " + hex(byte & 0b00011111))
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
         return "je"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 15):
+        return "loadw"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 20):
         return "add"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
+        return "sub"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
+        return "jump"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
+        return "jz"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
+        return "ret"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
       else:
         return "call"
+    if (operand_type == Operand.VAR and byte == 225):
+      return "storew"
     pass
 
   def getExtendedOpcode(self, byte):
     print("ExtendedOpcode")
     pass
 
+  def print_debug(self):
+    print("-------------")
+    print("Stack:")
+    print(self.stack)
+    if (len(self.routine_callstack) > 0):
+      print("Current routine state:")
+      print(self.routine_callstack[-1].print_debug())
+    print("-------------")
+
 def needsStoreVariable(opcode, version):
   if (opcode == "call" and version < 4):
     return True
   if (opcode == "add"):
     return True
+  if (opcode == "sub"):
+    return True
+  if (opcode == "loadw"):
+    return True
   return False
 
 def needsBranchOffset(opcode, version):
   if (opcode == "je"):
+    return True
+  if (opcode == "jz"):
     return True
   return False
 
@@ -420,6 +596,7 @@ def main():
     loop(main_memory)
 
 def loop(main_memory):
+  main_memory.print_debug()
   instr = main_memory.getInstruction(main_memory.pc)
   instr.print_debug()
   instr.run(main_memory)

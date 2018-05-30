@@ -29,3 +29,6 @@ KnightFic is a Z-Machine interpreter for Windows/Mac/Linux written in Python
 
 ** Opcodes
 - All
+- Factor out the argument decoding
+
+Rename 'getNumber' to 'getWord'?
