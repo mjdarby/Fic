@@ -5,6 +5,16 @@ from enum import Enum
 Form = Enum('Form', 'Short Long Variable Extended')
 Operand = Enum('Operand', 'ZeroOP OneOP TwoOP VAR')
 OperandType = Enum('OperandType', 'Large Small Variable')
+Alphabet = Enum('Alphabet', 'A0 A1 A2')
+
+# Alphabet
+a0 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
+              ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y', 'z']))
+a1 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
+              ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y', 'Z']))
+a2 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
+              [' ','\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')']))
+
 
 # Logging
 tracefile = open('trace.txt', 'w')
@@ -20,6 +30,7 @@ class Instruction:
                branch_on_true,
                branch_offset,
                text_to_print,
+               encoded_string_literal,
                instr_length):
     self.opcode = opcode
     self.operand_types = operand_types
@@ -28,6 +39,7 @@ class Instruction:
     self.branch_on_true = branch_on_true
     self.branch_offset = branch_offset
     self.text_to_print = text_to_print
+    self.encoded_string_literal = encoded_string_literal
     self.instr_length = instr_length
 
   def run(self, main_memory):
@@ -52,6 +64,8 @@ class Instruction:
       main_memory.put_prop(self)
     elif (self.opcode == 'jump'):
       main_memory.jump(self)
+    elif (self.opcode == 'print'):
+      main_memory.print_1(self)
     elif (self.opcode == 'test_attr'):
       main_memory.test_attr(self)
     elif (self.opcode == 'sub'):
@@ -107,14 +121,116 @@ class Memory:
     self.string_offset = self.mem[0x2a]
     self.global_table_start = self.getNumber(0x0c)
     self.object_table_start = self.getNumber(0x0a)
+    self.abbreviation_table_start = self.getNumber(0x18)
     self.stack = []
     self.routine_callstack = []
+    self.current_alphabet = Alphabet.A0
+    self.current_abbrev = None
     self.getFirstAddress()
     print(self.version, file=logfile)
     print(self.static, file=logfile)
     print(self.high, file=logfile)
 
+  # print
+  def getEncodedAbbreviationString(self, idx):
+    abbrev_addr = self.abbreviation_table_start + (idx*2)
+    abbrev_addr = self.getNumber(abbrev_addr)*2
+    return self.getEncodedTextLiteral(abbrev_addr)[0]
+
+  def print_string(self, string):
+    for characters in string:
+      first_char = (characters & 0b0111110000000000) >> 10
+      second_char = (characters& 0b0000001111100000) >> 5
+      third_char = (characters & 0b0000000000011111)
+      # TODO: V1
+      self.printZCharacterV3(first_char)
+      self.printZCharacterV3(second_char)
+      self.printZCharacterV3(third_char)
+
+  def printZCharacterV1(self, key):
+    # Handle shift characters
+    print(key, end=' ')
+    if key == 2:
+      if (self.current_alphabet == Alphabet.A0):
+        self.current_alphabet = Alphabet.A1
+      if (self.current_alphabet == Alphabet.A1):
+        self.current_alphabet = Alphabet.A2
+      if (self.current_alphabet == Alphabet.A2):
+        self.current_alphabet = Alphabet.A0
+      return
+    if key == 3:
+      if (self.current_alphabet == Alphabet.A0):
+        self.current_alphabet = Alphabet.A2
+      if (self.current_alphabet == Alphabet.A2):
+        self.current_alphabet = Alphabet.A1
+      if (self.current_alphabet == Alphabet.A1):
+        self.current_alphabet = Alphabet.A0
+      return
+    # TODO: Handle shiftlock
+    if key == 4:
+      self.current_alphabet = Alphabet.A1
+      return
+    if key == 5:
+      self.current_alphabet = Alphabet.A2
+      return
+
+    return
+    # Handle printing
+    if key == 0:
+      print(" ", end='')
+    if (self.current_alphabet == Alphabet.A0):
+      if key in a0:
+        print(a0[key], end='')
+    if (self.current_alphabet == Alphabet.A1):
+      if key in a1:
+        print(a1[key], end='')
+    if (self.current_alphabet == Alphabet.A2):
+      if key in a2:
+        print(a2[key], end='')
+
+    # TODO: Handle shiftlock
+    self.current_alphabet = Alphabet.A0
+
+  def printZCharacterV3(self, key):
+    # Print abbreviations
+    if (self.current_abbrev != None):
+      abbrev_idx = ((32*(self.current_abbrev-1)) + key)
+      self.current_abbrev = None
+      self.print_string(self.getEncodedAbbreviationString(abbrev_idx))
+      return
+    elif key in [1,2,3]:
+      self.current_abbrev = key
+      return
+
+    # Handle shift characters
+    if key == 4:
+      self.current_alphabet = Alphabet.A1
+      return
+    if key == 5:
+      self.current_alphabet = Alphabet.A2
+      return
+
+    # Print other characters
+    if key == 0:
+      print(" ", end='')
+    if (self.current_alphabet == Alphabet.A0):
+      if key in a0:
+        print(a0[key], end='')
+    if (self.current_alphabet == Alphabet.A1):
+      if key in a1:
+        print(a1[key], end='')
+    if (self.current_alphabet == Alphabet.A2):
+      if key in a2:
+        print(a2[key], end='')
+
+    self.current_alphabet = Alphabet.A0
+
   # opcodes
+  def print_1(self, instruction):
+    print("run print", file=logfile)
+    self.print_string(instruction.encoded_string_literal)
+    self.pc += instruction.instr_length
+
   def ret(self, instruction):
     # Return value in parameter
     decoded_opers  = self.decodeOperands(instruction)
@@ -364,6 +480,10 @@ class Memory:
   def getSmallNumber(self, addr):
     return self.mem[addr]
 
+  # Decode Z-Text starting at given address
+  def decodeZText(self, addr):
+    pass
+
   # Read an instruction (probably at PC)
   # Bit complicated due to versioning...
   def getInstruction(self, addr):
@@ -403,28 +523,28 @@ class Memory:
     if (not opcode):
       opcode = self.getOpcode(first_opcode_byte, opcount)
 
-    if (form == Form.Extended or form == Form.Variable):
-      operand_types = self.getOperandType(form, self.mem[next_byte])
-      next_byte += 1
-      # Special case: call_vs2 and call_vn2 can have 4 more args
-      if (opcode == 'call_vs2' or opcode == 'call_vn2'):
-        operand_types += self.getOperandType(form, self.mem[next_byte])
+    if (opcount != Operand.ZeroOP):
+      if (form == Form.Extended or form == Form.Variable):
+        operand_types = self.getOperandType(form, self.mem[next_byte])
         next_byte += 1
-    else:
-      operand_types = self.getOperandType(form, first_opcode_byte)
+        # Special case: call_vs2 and call_vn2 can have 4 more args
+        if (opcode == 'call_vs2' or opcode == 'call_vn2'):
+          operand_types += self.getOperandType(form, self.mem[next_byte])
+          next_byte += 1
+      else:
+        operand_types = self.getOperandType(form, first_opcode_byte)
 
-
-    # Now get that many operands...
-    for operand_type in operand_types:
-      if (operand_type == OperandType.Large):
-        operands.append(self.getNumber(next_byte))
-        next_byte += 2
-      if (operand_type == OperandType.Small):
-        operands.append(self.getSmallNumber(next_byte))
-        next_byte += 1
-      if (operand_type == OperandType.Variable):
-        operands.append(self.getSmallNumber(next_byte))
-        next_byte += 1
+      # Now get that many operands...
+      for operand_type in operand_types:
+        if (operand_type == OperandType.Large):
+          operands.append(self.getNumber(next_byte))
+          next_byte += 2
+        if (operand_type == OperandType.Small):
+          operands.append(self.getSmallNumber(next_byte))
+          next_byte += 1
+        if (operand_type == OperandType.Variable):
+          operands.append(self.getSmallNumber(next_byte))
+          next_byte += 1
 
     # If this opcode needs a store variable, get it...
     if (needsStoreVariable(opcode, self.version)):
@@ -444,6 +564,11 @@ class Memory:
         branch_offset = ((branch_bbyte & 0b00011111) << 5) + branch_byte_two
         next_byte += 1
 
+    # If this opcode needs a string literal, get that...
+    text_literal = None
+    if (needsTextLiteral(opcode, self.version)):
+      text_literal, next_byte = self.getEncodedTextLiteral(next_byte)
+
     instr_length = next_byte - addr
 
     return Instruction(opcode,
@@ -453,7 +578,20 @@ class Memory:
                        branch_on_true,
                        branch_offset,
                        text_to_print,
+                       text_literal,
                        instr_length)
+
+  def getEncodedTextLiteral(self, next_byte):
+    chars = self.getNumber(next_byte)
+    text_literal = []
+    # First two-byte set with the first bit set to '0' is the end of the stream
+    while ((chars & 0x8000) != 0x8000):
+      text_literal.append(chars)
+      next_byte += 2
+      chars = self.getNumber(next_byte)
+    text_literal.append(chars)
+    next_byte += 2
+    return (text_literal, next_byte)
 
   def getPropertyDefault(self, prop_number):
     # Prop_number >= 0 < 32 for versions 1-3, < 64 for version 4
@@ -610,7 +748,7 @@ class Memory:
   def getOpcode(self, byte, operand_type):
     print("getOpcode", file=logfile)
     print("last five bits: " + hex(byte & 0b00011111), file=logfile)
-    print("last four bits: " + hex(byte & 0b00011111), file=logfile)
+    print("last four bits: " + hex(byte & 0b00001111), file=logfile)
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
       return "je"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 10):
@@ -629,6 +767,8 @@ class Memory:
       return "jz"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
       return "ret"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 2):
+      return "print"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
@@ -670,6 +810,11 @@ def needsBranchOffset(opcode, version):
   if (opcode == "jz"):
     return True
   if (opcode == "test_attr"):
+    return True
+  return False
+
+def needsTextLiteral(opcode, version):
+  if (opcode == "print"):
     return True
   return False
 
