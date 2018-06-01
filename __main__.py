@@ -48,6 +48,8 @@ class Instruction:
       main_memory.call(self.operand_types, self.operands, self.store_variable, self.instr_length)
     elif (self.opcode == 'add'):
       main_memory.add(self)
+    elif (self.opcode == 'and'):
+      main_memory.and_1(self)
     elif (self.opcode == 'je'):
       main_memory.je(self)
     elif (self.opcode == 'jz'):
@@ -56,6 +58,8 @@ class Instruction:
       main_memory.ret(self)
     elif (self.opcode == 'loadw'):
       main_memory.loadw(self)
+    elif (self.opcode == 'loadb'):
+      main_memory.loadb(self)
     elif (self.opcode == 'storew'):
       main_memory.storew(self)
     elif (self.opcode == 'store'):
@@ -66,6 +70,8 @@ class Instruction:
       main_memory.jump(self)
     elif (self.opcode == 'print'):
       main_memory.print_1(self)
+    elif (self.opcode == 'new_line'):
+      main_memory.new_line(self)
     elif (self.opcode == 'test_attr'):
       main_memory.test_attr(self)
     elif (self.opcode == 'sub'):
@@ -226,6 +232,11 @@ class Memory:
     self.current_alphabet = Alphabet.A0
 
   # opcodes
+  def new_line(self, instruction):
+    print("newline", file=logfile)
+    print('')
+    self.pc += instruction.instr_length
+
   def print_1(self, instruction):
     print("run print", file=logfile)
     self.print_string(instruction.encoded_string_literal)
@@ -319,6 +330,17 @@ class Memory:
     self.setVariable(instruction.store_variable, self.mem[base_addr + (2*idx)])
     self.pc += instruction.instr_length # Move past the instr
 
+  def loadb(self, instruction):
+    print("loadb", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    base_addr = decoded_opers[0]
+    idx = decoded_opers[1]
+    print("Base addr: " + hex(base_addr), file=logfile)
+    print("Idx: " + hex(idx), file=logfile)
+    print("Store target: " + hex(instruction.store_variable), file=logfile)
+    self.setVariable(instruction.store_variable, self.mem[base_addr + (idx)])
+    self.pc += instruction.instr_length # Move past the instr
+
   def storew(self, instruction):
     print("storew", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -341,6 +363,13 @@ class Memory:
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
     print(decoded_opers, file=logfile)
     self.setVariable(instruction.store_variable, decoded_opers[0] + decoded_opers[1])
+    self.pc += instruction.instr_length
+
+  def and_1(self, instruction):
+    print("and", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    print(decoded_opers, file=logfile)
+    self.setVariable(instruction.store_variable, decoded_opers[0] & decoded_opers[1])
     self.pc += instruction.instr_length
 
   def sub(self, instruction):
@@ -751,14 +780,18 @@ class Memory:
     print("last four bits: " + hex(byte & 0b00001111), file=logfile)
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
       return "je"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 10):
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
       return "test_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 13):
       return "store"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 15):
       return "loadw"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x10):
+      return "loadb"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 20):
       return "add"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
+      return "and"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
       return "sub"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
@@ -769,6 +802,8 @@ class Memory:
       return "ret"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 2):
       return "print"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
+      return "new_line"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
@@ -796,11 +831,15 @@ class Memory:
 def needsStoreVariable(opcode, version):
   if (opcode == "call" and version < 4):
     return True
+  if (opcode == "and"):
+    return True
   if (opcode == "add"):
     return True
   if (opcode == "sub"):
     return True
   if (opcode == "loadw"):
+    return True
+  if (opcode == "loadb"):
     return True
   return False
 
