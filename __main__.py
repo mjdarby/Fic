@@ -52,10 +52,14 @@ class Instruction:
       main_memory.and_1(self)
     elif (self.opcode == 'je'):
       main_memory.je(self)
+    elif (self.opcode == 'inc_chk'):
+      main_memory.inc_chk(self)
     elif (self.opcode == 'jz'):
       main_memory.jz(self)
     elif (self.opcode == 'ret'):
       main_memory.ret(self)
+    elif (self.opcode == 'rtrue'):
+      main_memory.rtrue(self)
     elif (self.opcode == 'loadw'):
       main_memory.loadw(self)
     elif (self.opcode == 'loadb'):
@@ -70,6 +74,10 @@ class Instruction:
       main_memory.jump(self)
     elif (self.opcode == 'print'):
       main_memory.print_1(self)
+    elif (self.opcode == 'print_num'):
+      main_memory.print_num(self)
+    elif (self.opcode == 'print_char'):
+      main_memory.print_char(self)
     elif (self.opcode == 'new_line'):
       main_memory.new_line(self)
     elif (self.opcode == 'test_attr'):
@@ -231,7 +239,35 @@ class Memory:
 
     self.current_alphabet = Alphabet.A0
 
+  def print_number(self, number):
+    print(number, end='')
+
+  def print_zscii_character(self, character):
+    table = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
+    target_character = table[character-0x20]
+    print(target_character, end='')
+
   # opcodes
+  def inc_chk(self, instruction):
+    print("inc_chk", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    variable_num = decoded_opers[0]
+    chk_value = decoded_opers[1]
+    value = self.getVariable(variable_num)
+    print("inc_chk:value_in_var:", hex(variable_num), value, file=logfile)
+    # Inc...
+    value += 1
+    self.setVariable(variable_num, value)
+    # Branch check...
+    self.pc += instruction.instr_length
+    val_bigger = value > chk_value
+    if val_bigger and instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("inc_chk:branch_on_true:jumped to " + hex(self.pc), file=logfile)
+    elif not val_bigger and not instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("inc_chk:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+
   def new_line(self, instruction):
     print("newline", file=logfile)
     print('')
@@ -240,6 +276,18 @@ class Memory:
   def print_1(self, instruction):
     print("run print", file=logfile)
     self.print_string(instruction.encoded_string_literal)
+    self.pc += instruction.instr_length
+
+  def print_num(self, instruction):
+    print("print_num", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    self.print_number(getSignedEquivalent(decoded_opers[0]))
+    self.pc += instruction.instr_length
+
+  def print_char(self, instruction):
+    print("print_char", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    self.print_zscii_character(decoded_opers[0])
     self.pc += instruction.instr_length
 
   def ret(self, instruction):
@@ -251,6 +299,15 @@ class Memory:
     self.setVariable(current_routine.store_variable, decoded_opers[0])
     # ... kick execution home
     self.pc = current_routine.return_address
+
+  def rtrue(self, instruction):
+    # Pop the current routine so setVariable is targeting the right set of locals
+    current_routine = self.routine_callstack.pop()
+    # Return TRUE into store variable and...
+    self.setVariable(current_routine.store_variable, 1)
+    # ... kick execution home
+    self.pc = current_routine.return_address
+
 
   def je(self, instruction):
     print("je", file=logfile)
@@ -327,7 +384,7 @@ class Memory:
     print("Base addr: " + hex(base_addr), file=logfile)
     print("Idx: " + hex(idx), file=logfile)
     print("Store target: " + hex(instruction.store_variable), file=logfile)
-    self.setVariable(instruction.store_variable, self.mem[base_addr + (2*idx)])
+    self.setVariable(instruction.store_variable, self.getNumber(base_addr + (2*idx)))
     self.pc += instruction.instr_length # Move past the instr
 
   def loadb(self, instruction):
@@ -780,6 +837,8 @@ class Memory:
     print("last four bits: " + hex(byte & 0b00001111), file=logfile)
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
       return "je"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
+      return "inc_chk"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
       return "test_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 13):
@@ -800,6 +859,8 @@ class Memory:
       return "jz"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
       return "ret"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0):
+      return "rtrue"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 2):
       return "print"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
@@ -809,10 +870,14 @@ class Memory:
         return "call_vs"
       else:
         return "call"
+    if (operand_type == Operand.VAR and byte == 230):
+      return "print_num"
     if (operand_type == Operand.VAR and byte == 225):
       return "storew"
     if (operand_type == Operand.VAR and byte == 227):
       return "put_prop"
+    if (operand_type == Operand.VAR and byte == 229):
+      return "print_char"
     pass
 
   def getExtendedOpcode(self, byte):
@@ -845,6 +910,8 @@ def needsStoreVariable(opcode, version):
 
 def needsBranchOffset(opcode, version):
   if (opcode == "je"):
+    return True
+  if (opcode == "inc_chk"):
     return True
   if (opcode == "jz"):
     return True
