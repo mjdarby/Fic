@@ -244,7 +244,7 @@ class Memory:
 
   def print_zscii_character(self, character):
     table = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
-    target_character = table[character-0x20]
+    target_character = table[character-0x21] # Offset by 0x21
     print(target_character, end='')
 
   # opcodes
