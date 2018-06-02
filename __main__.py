@@ -168,14 +168,15 @@ class Memory:
     return self.getEncodedTextLiteral(abbrev_addr)[0]
 
   def print_string(self, string):
+    current_alphabet = Alphabet.A0
     for characters in string:
       first_char = (characters & 0b0111110000000000) >> 10
       second_char = (characters& 0b0000001111100000) >> 5
       third_char = (characters & 0b0000000000011111)
       # TODO: V1
-      self.printZCharacterV3(first_char)
-      self.printZCharacterV3(second_char)
-      self.printZCharacterV3(third_char)
+      current_alphabet = self.printZCharacterV3(first_char, current_alphabet)
+      current_alphabet = self.printZCharacterV3(second_char, current_alphabet)
+      current_alphabet = self.printZCharacterV3(third_char, current_alphabet)
 
   def printZCharacterV1(self, key):
     # Handle shift characters
@@ -221,7 +222,7 @@ class Memory:
     # TODO: Handle shiftlock
     self.current_alphabet = Alphabet.A0
 
-  def printZCharacterV3(self, key):
+  def printZCharacterV3(self, key, current_alphabet):
     # Print abbreviations
     if (self.current_abbrev != None):
       abbrev_idx = ((32*(self.current_abbrev-1)) + key)
@@ -234,26 +235,22 @@ class Memory:
 
     # Handle shift characters
     if key == 4:
-      self.current_alphabet = Alphabet.A1
-      return
+      return Alphabet.A1
     if key == 5:
-      self.current_alphabet = Alphabet.A2
-      return
+      return Alphabet.A2
 
     # Print other characters
     if key == 0:
       print(" ", end='')
-    if (self.current_alphabet == Alphabet.A0):
-      if key in a0:
-        print(a0[key], end='')
-    if (self.current_alphabet == Alphabet.A1):
-      if key in a1:
-        print(a1[key], end='')
-    if (self.current_alphabet == Alphabet.A2):
-      if key in a2:
-        print(a2[key], end='')
+    alphabet = a0
+    if current_alphabet == Alphabet.A1:
+      alphabet = a1
+    elif current_alphabet == Alphabet.A2:
+      alphabet = a2
+    if key in alphabet:
+      print(alphabet[key], end='')
 
-    self.current_alphabet = Alphabet.A0
+    return Alphabet.A0
 
   def print_number(self, number):
     print(number, end='')
@@ -309,7 +306,6 @@ class Memory:
     # If existing child for destination object, make them siblings
     original_child = self.getObjectChild(destination_obj)
     if (original_child > 0):
-#      self.setObjectSibling(original_child, inserted_obj_number) - Bad?
       self.setObjectSibling(inserted_obj_num, original_child)
 
     # Finally, establish new parent-child
@@ -331,12 +327,7 @@ class Memory:
     # Branch check...
     self.pc += instruction.instr_length
     val_bigger = value > chk_value
-    if val_bigger and instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("inc_chk:branch_on_true:jumped to " + hex(self.pc), file=logfile)
-    elif not val_bigger and not instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("inc_chk:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+    self.handleJumpDestination(val_bigger, instruction)
 
   def new_line(self, instruction):
     print("newline", file=logfile)
@@ -378,6 +369,14 @@ class Memory:
     # ... kick execution home
     self.pc = current_routine.return_address
 
+  def rfalse(self, instruction):
+    # Pop the current routine so setVariable is targeting the right set of locals
+    current_routine = self.routine_callstack.pop()
+    # Return FALSE into store variable and...
+    self.setVariable(current_routine.store_variable, 0)
+    # ... kick execution home
+    self.pc = current_routine.return_address
+
   def jin(self, instruction):
     print("jin", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -385,34 +384,41 @@ class Memory:
     parent = decoded_opers[1]
     actual_parent = self.getObjectParent(child)
     self.pc += instruction.instr_length # Move past the instr regardless
-    if parent == actual_parent and instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("je:branch_on_true:jumped to " + hex(self.pc), file=logfile)
-    elif parent != actual_parent and not instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("je:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+    self.handleJumpDestination(parent == actual_parent, instruction)
+
+  def handleJumpDestination(self, condition_met, instruction):
+    if condition_met and instruction.branch_on_true:
+      if (instruction.branch_offset == 0):
+        self.rfalse(None)
+        print("jump op:branch_on_true:ret false " + hex(self.pc), file=logfile)
+      elif (instruction.branch_offset == 1):
+        self.rtrue(None)
+        print("jump op:branch_on_true:ret true " + hex(self.pc), file=logfile)
+      else:
+        self.pc += instruction.branch_offset - 2
+        print("jump op:branch_on_true:jumped to " + hex(self.pc), file=logfile)
+    elif not condition_met and not instruction.branch_on_true:
+      if (instruction.branch_offset == 0):
+        self.rfalse(None)
+        print("jump op:branch_on_false:ret false " + hex(self.pc), file=logfile)
+      elif (instruction.branch_offset == 1):
+        self.rtrue(None)
+        print("jump op:branch_on_false:ret true " + hex(self.pc), file=logfile)
+      else:
+        self.pc += instruction.branch_offset - 2
+        print("jump op:branch_on_false:jumped to " + hex(self.pc), file=logfile)
 
   def je(self, instruction):
     print("je", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     self.pc += instruction.instr_length # Move past the instr regardless
-    if decoded_opers[0] == decoded_opers[1] and instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("je:branch_on_true:jumped to " + hex(self.pc), file=logfile)
-    elif decoded_opers[0] != decoded_opers[1] and not instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("je:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+    self.handleJumpDestination(decoded_opers[0] == decoded_opers[1], instruction)
 
   def jz(self, instruction):
     print("jz", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     self.pc += instruction.instr_length # Move past the instr regardless
-    if decoded_opers[0] == 0 and instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("jz:branch_on_true:jumped to " + hex(self.pc), file=logfile)
-    elif decoded_opers[0] != 0 and not instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("jz:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+    self.handleJumpDestination(decoded_opers[0] == 0, instruction)
 
   def test_attr(self, instruction):
     print("test_attr", file=logfile)
@@ -425,12 +431,7 @@ class Memory:
     print("jump on true: " + str(instruction.branch_on_true), file=logfile)
     attrib_set = self.isAttributeSet(obj_number, attrib_number)
     self.pc += instruction.instr_length # Move past the instr regardless
-    if attrib_set and instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("test_attr:branch_on_true:jumped to " + hex(self.pc), file=logfile)
-    elif not attrib_set and not instruction.branch_on_true:
-      self.pc += instruction.branch_offset - 2
-      print("test_attr:branch_on_false:jumped to " + hex(self.pc), file=logfile)
+    self.handleJumpDestination(attrib_set, instruction)
 
   def jump(self, instruction):
     print("jump", file=logfile)
@@ -443,11 +444,13 @@ class Memory:
     print("put_prop", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     print(decoded_opers, file=logfile)
-    print("Obj number: " + str(decoded_opers[0]), file=logfile)
-    prop_number = decoded_opers[1] - 1 # Offset
+    obj_number = decoded_opers[0]
+    prop_number = decoded_opers[1]
+    value = decoded_opers[2]
+    print("Obj number: " + str(obj_number), file=logfile)
     print("Prop number: " + str(prop_number), file=logfile)
-    print("Value: " + hex(decoded_opers[2]), file=logfile)
-    self.setProperty(decoded_opers[0], decoded_opers[1], decoded_opers[2])
+    print("Value: " + hex(value), file=logfile)
+    self.setProperty(obj_number, prop_number, value)
     self.pc += instruction.instr_length # Move past the instr
 
   def get_parent(self, instruction):
@@ -462,7 +465,7 @@ class Memory:
     print("get_prop", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     obj = decoded_opers[0]
-    property_num = decoded_opers[1] - 1 # offset
+    property_num = decoded_opers[1]
     self.setVariable(instruction.store_variable, self.getProperty(obj, property_num))
     self.pc += instruction.instr_length # Move past the instr
 
@@ -774,9 +777,10 @@ class Memory:
     return (text_literal, next_byte)
 
   def getPropertyDefault(self, prop_number):
-    # Prop_number >= 0 < 32 for versions 1-3, < 64 for version 4
+    # Prop_number >= 1 < 32 for versions 1-3, < 64 for version 4
+    # Need to offset
     start_addr = self.object_table_start
-    prop_addr = self.object_table_start + (prop_number * 2)
+    prop_addr = self.object_table_start + ((prop_number-1) * 2)
     prop_default = self.getNumber(prop_addr)
     return prop_default
 
@@ -912,18 +916,16 @@ class Memory:
 
   def getProperty(self, obj_number, prop_number):
     prop_addr = self.getPropertyAddress(obj_number, prop_number)
+    prop_start_addr = prop_addr + 1
     if (prop_addr == 0): # No property found
       return self.getPropertyDefault(prop_number)
     size_byte = self.getSmallNumber(prop_addr)
     cur_prop_number = 0b00011111 & size_byte
     prop_bytes = ((size_byte - cur_prop_number) >> 5) + 1
-    print("NO", prop_bytes,file=logfile)
     if (prop_bytes == 2):
-      print("WHAT", self.getNumber(prop_addr),file=logfile)
-      return self.getNumber(prop_addr)
+      return self.getNumber(prop_start_addr)
     elif (prop_bytes == 1):
-      print("WOAH", self.getSmallNumber(prop_addr),file=logfile)
-      return self.getSmallNumber(prop_addr)
+      return self.getSmallNumber(prop_start_addr)
 
   def getPropertyTableAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
@@ -938,7 +940,6 @@ class Memory:
     prop_table_address = self.getPropertyTableAddress(obj_number)
     short_name_length = self.getSmallNumber(prop_table_address)
     prop_list_start = prop_table_address + (short_name_length*2) + 1
-    print("Prop list address for object", obj_number, ": ", hex(prop_list_start), file=logfile)
     return prop_list_start
 
   def getPropertyAddress(self, obj_number, prop_number):
@@ -953,16 +954,18 @@ class Memory:
     size_byte_addr = prop_list_address
     size_byte = self.getSmallNumber(size_byte_addr)
     print("Prop addr: size_byte:", size_byte, file=logfile)
-    print("Prop addr: size_byte:", size_byte)
     while (size_byte != 0):
       cur_prop_number = 0b00011111 & size_byte
-      print(cur_prop_number)
-      if (prop_number == (cur_prop_number-1)):
+      if (prop_number == cur_prop_number):
         print("Prop addr: found prop at:", size_byte_addr, file=logfile)
         return size_byte_addr
       # Get the next property
-      prop_bytes = ((size_byte - (cur_prop_number-1)) >> 5) + 1
-      size_byte_addr += prop_bytes
+      # size_byte = ((num_bytes - 1) << 5) + prop_num
+      prop_bytes = size_byte - cur_prop_number
+      prop_bytes = prop_bytes >> 5
+      prop_bytes += 1
+#      prop_bytes = ((size_byte - (cur_prop_number-1)) >> 5) + 1
+      size_byte_addr += prop_bytes + 1 # move past size byte + prop bytes
       size_byte = self.getSmallNumber(size_byte_addr)
     return 0
 
