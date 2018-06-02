@@ -45,7 +45,7 @@ class Instruction:
   def run(self, main_memory):
     print("Running opcode: " + str(self.opcode), file=tracefile)
     if (self.opcode == 'call'):
-      main_memory.call(self.operand_types, self.operands, self.store_variable, self.instr_length)
+      main_memory.call(self)
     elif (self.opcode == 'add'):
       main_memory.add(self)
     elif (self.opcode == 'and'):
@@ -444,7 +444,8 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     print(decoded_opers, file=logfile)
     print("Obj number: " + str(decoded_opers[0]), file=logfile)
-    print("Prop number: " + str(decoded_opers[1]), file=logfile)
+    prop_number = decoded_opers[1] - 1 # Offset
+    print("Prop number: " + str(prop_number), file=logfile)
     print("Value: " + hex(decoded_opers[2]), file=logfile)
     self.setProperty(decoded_opers[0], decoded_opers[1], decoded_opers[2])
     self.pc += instruction.instr_length # Move past the instr
@@ -458,10 +459,10 @@ class Memory:
     self.pc += instruction.instr_length # Move past the instr
 
   def get_prop(self, instruction):
-    print("get_parent", file=logfile)
+    print("get_prop", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     obj = decoded_opers[0]
-    property_num = decoded_opers[1]
+    property_num = decoded_opers[1] - 1 # offset
     self.setVariable(instruction.store_variable, self.getProperty(obj, property_num))
     self.pc += instruction.instr_length # Move past the instr
 
@@ -536,15 +537,17 @@ class Memory:
     self.setVariable(instruction.store_variable, decoded_opers[0] - decoded_opers[1])
     self.pc += instruction.instr_length
 
-  def call(self, operand_types, operands, store_variable, instr_length):
+  def call(self, instruction):
     print("Routine call during run", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
     # Create a new routine object
     new_routine = RoutineCall()
     # Grab the return addr
-    new_routine.return_address = self.pc + instr_length
-    new_routine.store_variable = store_variable
+    new_routine.return_address = self.pc + instruction.instr_length
+    new_routine.store_variable = instruction.store_variable
     # First operand is calling address
-    routine_address = self.unpackAddress(operands[0], True)
+    calling_addr = decoded_opers[0]
+    routine_address = self.unpackAddress(calling_addr, True)
     print("Routine address: " + hex(routine_address), file=logfile)
     # How many local variables?
     local_var_count = self.getSmallNumber(routine_address)
@@ -559,14 +562,6 @@ class Memory:
         new_routine.local_variables.append(0)
 
     # Now set the locals as per the operands
-    oper_zip = list(zip(operand_types, operands))
-    decoded_opers  = []
-    for operand_pair in oper_zip:
-      if (operand_pair[0] == OperandType.Variable):
-        decoded_opers.append(self.getVariable(operand_pair[1]))
-      else:
-        decoded_opers.append(operand_pair[1])
-
     decoded_opers.pop(0)
     for index, operand in enumerate(decoded_opers):
       new_routine.local_variables[index] = operand
@@ -795,7 +790,8 @@ class Memory:
     if (self.version > 3):
       num_prop_defaults = 63
     obj_tree_start_address = self.object_table_start + (num_prop_defaults * 2)
-    obj_address = obj_tree_start_address + (obj_number * self.getObjSize())
+    # Object number starts from '1', so need to offset
+    obj_address = obj_tree_start_address + ((obj_number-1) * self.getObjSize())
     return obj_address
 
   def isAttributeSet(self, obj_number, attrib_number):
@@ -920,24 +916,29 @@ class Memory:
       return self.getPropertyDefault(prop_number)
     size_byte = self.getSmallNumber(prop_addr)
     cur_prop_number = 0b00011111 & size_byte
-    prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+    prop_bytes = ((size_byte - cur_prop_number) >> 5) + 1
+    print("NO", prop_bytes,file=logfile)
     if (prop_bytes == 2):
-      return self.getNumber(prop_address)
+      print("WHAT", self.getNumber(prop_addr),file=logfile)
+      return self.getNumber(prop_addr)
     elif (prop_bytes == 1):
-      return self.getSmallNumber(prop_address)
+      print("WOAH", self.getSmallNumber(prop_addr),file=logfile)
+      return self.getSmallNumber(prop_addr)
 
   def getPropertyTableAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
+    print("obj_addr", hex(obj_addr), file=logfile)
     prop_table_offset = 7
     if (self.version > 3):
       prop_table_offset = 9
-    prop_table_address = self.getNumber(prop_table_offset)
+    prop_table_address = self.getNumber(obj_addr + prop_table_offset)
     return prop_table_address
 
   def getPropertyListAddress(self, obj_number):
     prop_table_address = self.getPropertyTableAddress(obj_number)
     short_name_length = self.getSmallNumber(prop_table_address)
-    prop_list_start = prop_table_address + short_name_length + 1
+    prop_list_start = prop_table_address + (short_name_length*2) + 1
+    print("Prop list address for object", obj_number, ": ", hex(prop_list_start), file=logfile)
     return prop_list_start
 
   def getPropertyAddress(self, obj_number, prop_number):
@@ -946,16 +947,21 @@ class Memory:
     else:
       return self.getPropertyAddressV4(obj_number, prop_number)
 
+
   def getPropertyAddressV1(self, obj_number, prop_number):
     prop_list_address = self.getPropertyListAddress(obj_number)
     size_byte_addr = prop_list_address
     size_byte = self.getSmallNumber(size_byte_addr)
+    print("Prop addr: size_byte:", size_byte, file=logfile)
+    print("Prop addr: size_byte:", size_byte)
     while (size_byte != 0):
       cur_prop_number = 0b00011111 & size_byte
-      if (prop_number == cur_prop_number):
+      print(cur_prop_number)
+      if (prop_number == (cur_prop_number-1)):
+        print("Prop addr: found prop at:", size_byte_addr, file=logfile)
         return size_byte_addr
       # Get the next property
-      prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+      prop_bytes = ((size_byte - (cur_prop_number-1)) >> 5) + 1
       size_byte_addr += prop_bytes
       size_byte = self.getSmallNumber(size_byte_addr)
     return 0
