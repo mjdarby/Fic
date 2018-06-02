@@ -54,6 +54,8 @@ class Instruction:
       main_memory.je(self)
     elif (self.opcode == 'inc_chk'):
       main_memory.inc_chk(self)
+    elif (self.opcode == 'get_parent'):
+      main_memory.get_parent(self)
     elif (self.opcode == 'jz'):
       main_memory.jz(self)
     elif (self.opcode == 'ret'):
@@ -72,12 +74,26 @@ class Instruction:
       main_memory.put_prop(self)
     elif (self.opcode == 'jump'):
       main_memory.jump(self)
+    elif (self.opcode == 'insert_obj'):
+      main_memory.insert_obj(self)
+    elif (self.opcode == 'push'):
+      main_memory.push(self)
+    elif (self.opcode == 'pull'):
+      main_memory.pull(self)
     elif (self.opcode == 'print'):
       main_memory.print_1(self)
     elif (self.opcode == 'print_num'):
       main_memory.print_num(self)
     elif (self.opcode == 'print_char'):
       main_memory.print_char(self)
+    elif (self.opcode == 'set_attr'):
+      main_memory.set_attr(self)
+    elif (self.opcode == 'clear_attr'):
+      main_memory.clear_attr(self)
+    elif (self.opcode == 'jin'):
+      main_memory.jin(self)
+    elif (self.opcode == 'get_prop'):
+      main_memory.get_prop(self)
     elif (self.opcode == 'new_line'):
       main_memory.new_line(self)
     elif (self.opcode == 'test_attr'):
@@ -248,6 +264,60 @@ class Memory:
     print(target_character, end='')
 
   # opcodes
+  def set_attr(self, instruction):
+    print("set_attr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_num = decoded_opers[0]
+    attrib_num = decoded_opers[1]
+    self.setAttribute(obj_num, attrib_num, True)
+    self.pc += instruction.instr_length
+
+  def clear_attr(self, instruction):
+    print("clear_attr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_num = decoded_opers[0]
+    attrib_num = decoded_opers[1]
+    self.setAttribute(obj_num, attrib_num, False)
+    self.pc += instruction.instr_length
+
+  def push(self, instruction):
+    print("push", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    value_to_push = decoded_opers[0]
+    self.setVariable(0, value_to_push)
+    self.pc += instruction.instr_length
+
+  def pull(self, instruction):
+    print("push", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    variable_to_pull_to = decoded_opers[0]
+    stack_val = self.getVariable(0)
+    self.setVariable(variable_to_pull_to, stack_val)
+    self.pc += instruction.instr_length
+
+  def insert_obj(self, instruction):
+    print("insert_obj", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    inserted_obj_num = decoded_opers[0]
+    destination_obj = decoded_opers[1]
+
+    # Remove original parentage
+    original_parent = self.getObjectParent(inserted_obj_num)
+    if (original_parent > 0):
+      self.setObjectChild(original_parent, 0)
+
+    # If existing child for destination object, make them siblings
+    original_child = self.getObjectChild(destination_obj)
+    if (original_child > 0):
+#      self.setObjectSibling(original_child, inserted_obj_number) - Bad?
+      self.setObjectSibling(inserted_obj_num, original_child)
+
+    # Finally, establish new parent-child
+    self.setObjectParent(inserted_obj_num, destination_obj)
+    self.setObjectChild(destination_obj, inserted_obj_num)
+
+    self.pc += instruction.instr_length
+
   def inc_chk(self, instruction):
     print("inc_chk", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -308,6 +378,19 @@ class Memory:
     # ... kick execution home
     self.pc = current_routine.return_address
 
+  def jin(self, instruction):
+    print("jin", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    child = decoded_opers[0]
+    parent = decoded_opers[1]
+    actual_parent = self.getObjectParent(child)
+    self.pc += instruction.instr_length # Move past the instr regardless
+    if parent == actual_parent and instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("je:branch_on_true:jumped to " + hex(self.pc), file=logfile)
+    elif parent != actual_parent and not instruction.branch_on_true:
+      self.pc += instruction.branch_offset - 2
+      print("je:branch_on_false:jumped to " + hex(self.pc), file=logfile)
 
   def je(self, instruction):
     print("je", file=logfile)
@@ -364,6 +447,22 @@ class Memory:
     print("Prop number: " + str(decoded_opers[1]), file=logfile)
     print("Value: " + hex(decoded_opers[2]), file=logfile)
     self.setProperty(decoded_opers[0], decoded_opers[1], decoded_opers[2])
+    self.pc += instruction.instr_length # Move past the instr
+
+  def get_parent(self, instruction):
+    print("get_parent", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj = decoded_opers[0]
+    parent = self.getObjectParent(obj)
+    self.setVariable(instruction.store_variable, parent)
+    self.pc += instruction.instr_length # Move past the instr
+
+  def get_prop(self, instruction):
+    print("get_parent", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj = decoded_opers[0]
+    property_num = decoded_opers[1]
+    self.setVariable(instruction.store_variable, self.getProperty(obj, property_num))
     self.pc += instruction.instr_length # Move past the instr
 
   def store(self, instruction):
@@ -647,7 +746,7 @@ class Memory:
         branch_offset = branch_byte & 0b00111111
       else:
         branch_byte_two = self.getSmallNumber(next_byte)
-        branch_offset = ((branch_bbyte & 0b00011111) << 5) + branch_byte_two
+        branch_offset = ((branch_byte & 0b00011111) << 5) + branch_byte_two
         next_byte += 1
 
     # If this opcode needs a string literal, get that...
@@ -683,7 +782,7 @@ class Memory:
     # Prop_number >= 0 < 32 for versions 1-3, < 64 for version 4
     start_addr = self.object_table_start
     prop_addr = self.object_table_start + (prop_number * 2)
-    prop_default = getNumber(prop_addr)
+    prop_default = self.getNumber(prop_addr)
     return prop_default
 
   def getObjSize(self):
@@ -708,6 +807,124 @@ class Memory:
       return attrib_bit & first_two_attribute_bytes == attrib_bit
     else: # attrib_number >=16 && < 32
       return attrib_bit & last_two_attribute_bytes == attrib_bit
+
+  def setAttribute(self, obj_number, attrib_number, value):
+    obj_addr = self.getObjectAddress(obj_number)
+    if (value):
+      attrib_bit = 1 << (attrib_number % 4)
+      if (attrib_number < 4):
+        self.mem[obj_addr] |= attrib_bit
+      if (attrib_number < 8):
+        self.mem[obj_addr+1] |= attrib_bit
+      if (attrib_number < 12):
+        self.mem[obj_addr+2] |= attrib_bit
+      else:
+        self.mem[obj_addr+3] |= attrib_bit
+    else:
+      attrib_bit = 0xffffffff
+      attrib_bit -= 1 << (attrib_number % 4)
+      if (attrib_number < 4):
+        self.mem[obj_addr] &= attrib_bit
+      if (attrib_number < 8):
+        self.mem[obj_addr+1] &= attrib_bit
+      if (attrib_number < 12):
+        self.mem[obj_addr+2] &= attrib_bit
+      else:
+        self.mem[obj_addr+3] &= attrib_bit
+
+    first_two_attribute_bytes = self.getNumber(obj_addr)
+    last_two_attribute_bytes = self.getNumber(obj_addr+2)
+    if (attrib_number < 16):
+      return attrib_bit & first_two_attribute_bytes == attrib_bit
+    else: # attrib_number >=16 && < 32
+      return attrib_bit & last_two_attribute_bytes == attrib_bit
+
+  def getObjectRelationshipsAddress(self, obj_number):
+    obj_addr = self.getObjectAddress(obj_number)
+    if (self.version > 3):
+      return obj_addr + 4
+    return obj_addr + 3
+
+  def getObjectParentAddress(self, obj_number):
+    return self.getObjectRelationshipsAddress(obj_number)
+
+  def getObjectSiblingAddress(self, obj_number):
+    sibling_addr = self.getObjectParentAddress(obj_number)
+    if (self.version > 3):
+      sibling_addr += 2
+    else:
+      sibling_addr += 1
+    return sibling_addr
+
+  def getObjectChildAddress(self, obj_number):
+    child_addr = self.getObjectSiblingAddress(obj_number)
+    if (self.version > 3):
+      child_addr += 2
+    else:
+      child_addr += 1
+    return child_addr
+
+  def getObjectParent(self, obj_number):
+    parent_addr = self.getObjectParentAddress(obj_number)
+    if (self.version > 3):
+      return self.getNumber(parent_addr)
+    return self.getSmallNumber(parent_addr)
+
+  def getObjectSibling(self, obj_number):
+    sibling_addr = self.getObjectSiblingAddress(obj_number)
+    if (self.version > 3):
+      return self.getNumber(sibling_addr)
+    return self.getSmallNumber(sibling_addr)
+
+  def getObjectChild(self, obj_number):
+    child_addr = self.getObjectChildAddress(obj_number)
+    if (self.version > 3):
+      return self.getNumber(child_addr)
+    return self.getSmallNumber(child_addr)
+
+  def setObjectParent(self, obj_number, parent):
+    parent_addr = self.getObjectParentAddress(obj_number)
+    if (self.version > 3):
+      p_1, p_2 = self.breakWord(parent)
+      self.mem[parent_addr] = p_1
+      self.mem[parent_addr+1] = p_2
+    else:
+      self.mem[parent_addr] = parent
+
+  def setObjectSibling(self, obj_number, sibling):
+    sibling_addr = self.getObjectSiblingAddress(obj_number)
+    if (self.version > 3):
+      s_1, s_2 = self.breakWord(sibling)
+      self.mem[sibling_addr] = s_1
+      self.mem[sibling_addr+1] = s_2
+    else:
+      self.mem[sibling_addr] = sibling
+
+  def setObjectChild(self, obj_number, child):
+    child_addr = self.getObjectChildAddress(obj_number)
+    if (self.version > 3):
+      c_1, c_2 = self.breakWord(child)
+      self.mem[child_addr] = c_1
+      self.mem[child_addr+1] = c_2
+    else:
+      self.mem[child_addr] = child
+
+  def breakWord(word):
+    byte_1 = (0xff00 & word) >> 8
+    byte_2 = (0x00ff & word)
+    return (byte_1, byte_2)
+
+  def getProperty(self, obj_number, prop_number):
+    prop_addr = self.getPropertyAddress(obj_number, prop_number)
+    if (prop_addr == 0): # No property found
+      return self.getPropertyDefault(prop_number)
+    size_byte = self.getSmallNumber(prop_addr)
+    cur_prop_number = 0b00011111 & size_byte
+    prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+    if (prop_bytes == 2):
+      return self.getNumber(prop_address)
+    elif (prop_bytes == 1):
+      return self.getSmallNumber(prop_address)
 
   def getPropertyTableAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
@@ -853,10 +1070,22 @@ class Memory:
       return "and"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
       return "sub"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
+      return "insert_obj"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xb):
+      return "set_attr"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xc):
+      return "clear_attr"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
+      return "jin"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
+      return "get_prop"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
       return "jump"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
       return "jz"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 3):
+      return "get_parent"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
       return "ret"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0):
@@ -878,6 +1107,10 @@ class Memory:
       return "put_prop"
     if (operand_type == Operand.VAR and byte == 229):
       return "print_char"
+    if (operand_type == Operand.VAR and byte == 232):
+      return "push"
+    if (operand_type == Operand.VAR and byte == 233):
+      return "pull"
     pass
 
   def getExtendedOpcode(self, byte):
@@ -898,6 +1131,10 @@ def needsStoreVariable(opcode, version):
     return True
   if (opcode == "and"):
     return True
+  if (opcode == "get_parent"):
+    return True
+  if (opcode == "get_prop"):
+    return True
   if (opcode == "add"):
     return True
   if (opcode == "sub"):
@@ -909,6 +1146,8 @@ def needsStoreVariable(opcode, version):
   return False
 
 def needsBranchOffset(opcode, version):
+  if (opcode == "jin"):
+    return True
   if (opcode == "je"):
     return True
   if (opcode == "inc_chk"):
