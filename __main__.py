@@ -7,6 +7,11 @@ Operand = Enum('Operand', 'ZeroOP OneOP TwoOP VAR')
 OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
+# 'Needs'
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","loadw","loadb"]
+NeedTextLiteral = ["print","print_ret"]
+
 # Alphabet
 a0 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
               ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y', 'z']))
@@ -54,6 +59,8 @@ class Instruction:
       main_memory.je(self)
     elif (self.opcode == 'inc_chk'):
       main_memory.inc_chk(self)
+    elif (self.opcode == 'dec_chk'):
+      main_memory.dec_chk(self)
     elif (self.opcode == 'inc'):
       main_memory.inc(self)
     elif (self.opcode == 'get_parent'):
@@ -90,6 +97,8 @@ class Instruction:
       main_memory.jump(self)
     elif (self.opcode == 'insert_obj'):
       main_memory.insert_obj(self)
+    elif (self.opcode == 'remove_obj'):
+      main_memory.remove_obj(self)
     elif (self.opcode == 'push'):
       main_memory.push(self)
     elif (self.opcode == 'pull'):
@@ -174,16 +183,57 @@ class Memory:
     self.global_table_start = self.getNumber(0x0c)
     self.object_table_start = self.getNumber(0x0a)
     self.abbreviation_table_start = self.getNumber(0x18)
+    self.dictionary_table_start = self.getNumber(0x08)
     self.stack = []
     self.routine_callstack = []
     self.current_alphabet = Alphabet.A0
     self.current_abbrev = None
     self.ten_bit_zscii_bytes_needed = None
     self.ten_bit_zscii_bytes = None
+    self.word_separators = []
+    self.dictionary_mapping = dict()
     self.getFirstAddress()
     print(self.version, file=logfile)
     print(self.static, file=logfile)
     print(self.high, file=logfile)
+
+  # read dictionary
+  def readDictionary(self):
+    dict_addr = self.dictionary_table_start
+    byte = 0
+    # How many separators?
+    num_separators = self.getSmallNumber(dict_addr + byte)
+    byte += 1
+    for i in range(num_separators):
+      self.word_separators.append(self.getSmallNumber(dict_addr + byte))
+      byte += 1
+
+    # How big is a dictionary entry?
+    entry_size = self.getSmallNumber(dict_addr + byte)
+    byte += 1
+
+    # How many entries?
+    num_entries = self.getNumber(dict_addr + byte)
+    byte += 2
+
+    # Load 'em up!
+    for i in range(num_entries):
+      word_1, word_2 = self.getNumber(dict_addr + byte), self.getNumber(dict_addr + byte + 2)
+      self.print_string(self.getEncodedTextLiteral(dict_addr + byte)[0])
+      self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
+      byte += entry_size
+
+  # Input shenaningans
+  def stringToBuffer(self):
+    pass
+
+  def stringToDictionaryLookup(self, string):
+    pass
+
+  def stringToEncodedBytes(self, string):
+    # Sanitise...
+    string = string.lower()
+
 
   # print
   def getEncodedAbbreviationString(self, idx):
@@ -363,6 +413,24 @@ class Memory:
 
     self.pc += instruction.instr_length
 
+  def remove_obj(self, instruction):
+    print("insert_obj", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_num = decoded_opers[0]
+    print("remove_obj:obj to orphan:", obj_num, file=logfile)
+
+    # Remove original parentage, upgrade sibling if any
+    original_parent = self.getObjectParent(obj_num)
+    original_sibling = self.getObjectSibling(obj_num)
+    if (original_parent > 0):
+      print("remove_obj:former parent:", original_parent, file=logfile)
+      self.setObjectChild(original_parent, original_sibling)
+      if (original_sibling > 0):
+        self.setObjectParent(original_sibling, original_parent)
+
+    self.setObjectParent(obj_num, 0)
+    self.pc += instruction.instr_length
+
   def inc_chk(self, instruction):
     print("inc_chk", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -376,6 +444,21 @@ class Memory:
     # Branch check...
     self.pc += instruction.instr_length
     val_bigger = value > chk_value
+    self.handleJumpDestination(val_bigger, instruction)
+
+  def dec_chk(self, instruction):
+    print("dec_chk", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    variable_num = decoded_opers[0]
+    chk_value = decoded_opers[1]
+    value = getSignedEquivalent(self.getVariable(variable_num))
+    print("dec_chk:value_in_var:", hex(variable_num), value, file=logfile)
+    # Inc...
+    value -= 1
+    self.setVariable(variable_num, value)
+    # Branch check...
+    self.pc += instruction.instr_length
+    val_smaller = value < chk_value
     self.handleJumpDestination(val_bigger, instruction)
 
   def inc(self, instruction):
@@ -1197,6 +1280,8 @@ class Memory:
     print("last four bits: " + hex(byte & 0b00001111), file=logfile)
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
       return "je"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x4):
+      return "dec_chk"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
       return "inc_chk"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
@@ -1227,6 +1312,8 @@ class Memory:
       return "jin"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
       return "get_prop"
+    if (operand_type == Operand.OneOP and byte & 0b00011111 == 0x9):
+      return "remove_obj"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
       return "jump"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
@@ -1292,55 +1379,13 @@ class Memory:
     print("-------------", file=logfile)
 
 def needsStoreVariable(opcode, version):
-  if (opcode == "call" and version < 4):
-    return True
-  if (opcode == "and"):
-    return True
-  if (opcode == "get_parent"):
-    return True
-  if (opcode == "get_child"):
-    return True
-  if (opcode == "get_sibling"):
-    return True
-  if (opcode == "get_prop"):
-    return True
-  if (opcode == "add"):
-    return True
-  if (opcode == "sub"):
-    return True
-  if (opcode == "loadw"):
-    return True
-  if (opcode == "loadb"):
-    return True
-  return False
+  return opcode in NeedStoreVariable
 
 def needsBranchOffset(opcode, version):
-  if (opcode == "jin"):
-    return True
-  if (opcode == "jg"):
-    return True
-  if (opcode == "jl"):
-    return True
-  if (opcode == "je"):
-    return True
-  if (opcode == "inc_chk"):
-    return True
-  if (opcode == "jz"):
-    return True
-  if (opcode == "get_child"):
-    return True
-  if (opcode == "get_sibling"):
-    return True
-  if (opcode == "test_attr"):
-    return True
-  return False
+  return opcode in NeedBranchOffset
 
 def needsTextLiteral(opcode, version):
-  if (opcode == "print"):
-    return True
-  if (opcode == "print_ret"):
-    return True
-  return False
+  return opcode in NeedTextLiteral
 
 def getOperandTypeFromBytes(byte):
   if (byte == 0):
@@ -1352,6 +1397,7 @@ def getOperandTypeFromBytes(byte):
 
 def main():
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
+  main_memory.readDictionary()
 
   # If this is Z-Machine 6, we don't have a 'first instruction',
   # but a 'main routine' instead. So create a call instruction
