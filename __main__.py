@@ -178,6 +178,8 @@ class Memory:
     self.routine_callstack = []
     self.current_alphabet = Alphabet.A0
     self.current_abbrev = None
+    self.ten_bit_zscii_bytes_needed = None
+    self.ten_bit_zscii_bytes = None
     self.getFirstAddress()
     print(self.version, file=logfile)
     print(self.static, file=logfile)
@@ -245,15 +247,28 @@ class Memory:
     self.current_alphabet = Alphabet.A0
 
   def printZCharacterV3(self, key, current_alphabet):
+    # Handle ten-bit ZSCII
+    if (self.ten_bit_zscii_bytes_needed == 2):
+      self.ten_bit_zscii_bytes += key << 5
+      self.ten_bit_zscii_bytes_needed -= 1
+      return current_alphabet
+    elif (self.ten_bit_zscii_bytes_needed == 1):
+      self.ten_bit_zscii_bytes_needed -= 1
+      self.ten_bit_zscii_bytes += key
+      return current_alphabet
+    elif (self.ten_bit_zscii_bytes_needed == 0):
+      self.print_zscii_character(self.ten_bit_zscii_bytes)
+      self.ten_bit_zscii_bytes_needed = None
+
     # Print abbreviations
     if (self.current_abbrev != None):
       abbrev_idx = ((32*(self.current_abbrev-1)) + key)
       self.current_abbrev = None
       self.print_string(self.getEncodedAbbreviationString(abbrev_idx))
-      return
+      return current_alphabet
     elif key in [1,2,3]:
       self.current_abbrev = key
-      return
+      return current_alphabet
 
     # Handle shift characters
     if key == 4:
@@ -269,7 +284,12 @@ class Memory:
       alphabet = a1
     elif current_alphabet == Alphabet.A2:
       alphabet = a2
-    if key in alphabet:
+
+    if key == 6 and current_alphabet == Alphabet.A2:
+      # 10-bit Z-character to process
+      self.ten_bit_zscii_bytes_needed = 2
+      self.ten_bit_zscii_bytes = 0
+    elif key in alphabet:
       print(alphabet[key], end='')
 
     return Alphabet.A0
