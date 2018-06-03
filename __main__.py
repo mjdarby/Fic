@@ -54,14 +54,28 @@ class Instruction:
       main_memory.je(self)
     elif (self.opcode == 'inc_chk'):
       main_memory.inc_chk(self)
+    elif (self.opcode == 'inc'):
+      main_memory.inc(self)
     elif (self.opcode == 'get_parent'):
       main_memory.get_parent(self)
+    elif (self.opcode == 'get_child'):
+      main_memory.get_child(self)
+    elif (self.opcode == 'get_sibling'):
+      main_memory.get_sibling(self)
     elif (self.opcode == 'jz'):
       main_memory.jz(self)
+    elif (self.opcode == 'jg'):
+      main_memory.jg(self)
+    elif (self.opcode == 'jl'):
+      main_memory.jl(self)
     elif (self.opcode == 'ret'):
       main_memory.ret(self)
+    elif (self.opcode == 'ret_popped'):
+      main_memory.ret_popped(self)
     elif (self.opcode == 'rtrue'):
       main_memory.rtrue(self)
+    elif (self.opcode == 'rfalse'):
+      main_memory.rfalse(self)
     elif (self.opcode == 'loadw'):
       main_memory.loadw(self)
     elif (self.opcode == 'loadb'):
@@ -82,10 +96,18 @@ class Instruction:
       main_memory.pull(self)
     elif (self.opcode == 'print'):
       main_memory.print_1(self)
+    elif (self.opcode == 'print_ret'):
+      main_memory.print_ret(self)
     elif (self.opcode == 'print_num'):
       main_memory.print_num(self)
     elif (self.opcode == 'print_char'):
       main_memory.print_char(self)
+    elif (self.opcode == 'print_obj'):
+      main_memory.print_obj(self)
+    elif (self.opcode == 'print_addr'):
+      main_memory.print_addr(self)
+    elif (self.opcode == 'print_paddr'):
+      main_memory.print_paddr(self)
     elif (self.opcode == 'set_attr'):
       main_memory.set_attr(self)
     elif (self.opcode == 'clear_attr'):
@@ -297,15 +319,22 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     inserted_obj_num = decoded_opers[0]
     destination_obj = decoded_opers[1]
+    print("insert_obj:obj to insert:", inserted_obj_num, file=logfile)
+    print("insert_obj:destination obj:", destination_obj, file=logfile)
 
-    # Remove original parentage
+    # Remove original parentage, upgrade sibling if any
     original_parent = self.getObjectParent(inserted_obj_num)
+    original_sibling = self.getObjectSibling(inserted_obj_num)
     if (original_parent > 0):
-      self.setObjectChild(original_parent, 0)
+      print("insert_obj:former parent:", original_parent, file=logfile)
+      self.setObjectChild(original_parent, original_sibling)
+      if (original_sibling > 0):
+        self.setObjectParent(original_sibling, original_parent)
 
     # If existing child for destination object, make them siblings
     original_child = self.getObjectChild(destination_obj)
     if (original_child > 0):
+      print("insert_obj:new sibling:", original_child, file=logfile)
       self.setObjectSibling(inserted_obj_num, original_child)
 
     # Finally, establish new parent-child
@@ -319,7 +348,7 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     variable_num = decoded_opers[0]
     chk_value = decoded_opers[1]
-    value = self.getVariable(variable_num)
+    value = getSignedEquivalent(self.getVariable(variable_num))
     print("inc_chk:value_in_var:", hex(variable_num), value, file=logfile)
     # Inc...
     value += 1
@@ -329,6 +358,15 @@ class Memory:
     val_bigger = value > chk_value
     self.handleJumpDestination(val_bigger, instruction)
 
+  def inc(self, instruction):
+    print("inc", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    variable_num = decoded_opers[0]
+    value = getSignedEquivalent(self.getVariable(variable_num))
+    value += 1
+    self.setVariable(variable_num, value)
+    self.pc += instruction.instr_length
+
   def new_line(self, instruction):
     print("newline", file=logfile)
     print('')
@@ -337,6 +375,28 @@ class Memory:
   def print_1(self, instruction):
     print("run print", file=logfile)
     self.print_string(instruction.encoded_string_literal)
+    self.pc += instruction.instr_length
+
+  def print_ret(self, instruction):
+    print("print_ret", file=logfile)
+    self.print_string(instruction.encoded_string_literal)
+    self.rtrue(None)
+
+  def print_addr(self, instruction):
+    print("print_addr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    string_byte_addr = decoded_opers[0]
+    encoded_string_literal = self.getEncodedTextLiteral(string_byte_addr)[0]
+    self.print_string(encoded_string_literal)
+    self.pc += instruction.instr_length
+
+  def print_paddr(self, instruction):
+    print("print_paddr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    string_packed_addr = decoded_opers[0]
+    string_addr = self.unpackAddress(string_packed_addr, False)
+    encoded_string_literal = self.getEncodedTextLiteral(string_addr)[0]
+    self.print_string(encoded_string_literal)
     self.pc += instruction.instr_length
 
   def print_num(self, instruction):
@@ -351,6 +411,13 @@ class Memory:
     self.print_zscii_character(decoded_opers[0])
     self.pc += instruction.instr_length
 
+  def print_obj(self, instruction):
+    print("print_obj", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_num = decoded_opers[0]
+    self.print_string(self.getEncodedObjectShortName(obj_num))
+    self.pc += instruction.instr_length
+
   def ret(self, instruction):
     # Return value in parameter
     decoded_opers  = self.decodeOperands(instruction)
@@ -358,6 +425,14 @@ class Memory:
     current_routine = self.routine_callstack.pop()
     # Return into store variable and...
     self.setVariable(current_routine.store_variable, decoded_opers[0])
+    # ... kick execution home
+    self.pc = current_routine.return_address
+
+  def ret_popped(self, instruction):
+    # Pop the current routine so setVariable is targeting the right set of locals
+    current_routine = self.routine_callstack.pop()
+    # Pop into store variable and...
+    self.setVariable(current_routine.store_variable, self.getVariable(0))
     # ... kick execution home
     self.pc = current_routine.return_address
 
@@ -414,6 +489,20 @@ class Memory:
     self.pc += instruction.instr_length # Move past the instr regardless
     self.handleJumpDestination(decoded_opers[0] == decoded_opers[1], instruction)
 
+  def jg(self, instruction):
+    print("jg", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    self.pc += instruction.instr_length # Move past the instr regardless
+    self.handleJumpDestination(decoded_opers[0] > decoded_opers[1], instruction)
+
+  def jl(self, instruction):
+    print("jl", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    self.pc += instruction.instr_length # Move past the instr regardless
+    self.handleJumpDestination(decoded_opers[0] < decoded_opers[1], instruction)
+
   def jz(self, instruction):
     print("jz", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -458,8 +547,31 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     obj = decoded_opers[0]
     parent = self.getObjectParent(obj)
+    print("get_parent: obj:", obj, file=logfile)
+    print("get_parent: parent:", parent, file=logfile)
     self.setVariable(instruction.store_variable, parent)
     self.pc += instruction.instr_length # Move past the instr
+
+  def get_child(self, instruction):
+    print("get_child", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj = decoded_opers[0]
+    child = self.getObjectChild(obj)
+    print("get_child: Child got:", child, file=logfile)
+    self.setVariable(instruction.store_variable, child)
+    child_exists = child != 0
+    self.pc += instruction.instr_length # Move past the instr
+    self.handleJumpDestination(child_exists, instruction)
+
+  def get_sibling(self, instruction):
+    print("get_sibling", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj = decoded_opers[0]
+    sibling = self.getObjectSibling(obj)
+    self.setVariable(instruction.store_variable, sibling)
+    sibling_exists = sibling != 0
+    self.pc += instruction.instr_length # Move past the instr
+    self.handleJumpDestination(sibling_exists, instruction)
 
   def get_prop(self, instruction):
     print("get_prop", file=logfile)
@@ -486,6 +598,7 @@ class Memory:
     idx = decoded_opers[1]
     print("Base addr: " + hex(base_addr), file=logfile)
     print("Idx: " + hex(idx), file=logfile)
+    print("Target addr: ", hex(base_addr + (2*idx)), file=logfile)
     print("Store target: " + hex(instruction.store_variable), file=logfile)
     self.setVariable(instruction.store_variable, self.getNumber(base_addr + (2*idx)))
     self.pc += instruction.instr_length # Move past the instr
@@ -543,13 +656,19 @@ class Memory:
   def call(self, instruction):
     print("Routine call during run", file=logfile)
     decoded_opers = self.decodeOperands(instruction)
+    # First operand is calling address
+    calling_addr = decoded_opers[0]
+    # Check for address 0
+    if (calling_addr == 0):
+      self.setVariable(instruction.store_variable, 0)
+      self.pc += instruction.instr_length
+      return
+
     # Create a new routine object
     new_routine = RoutineCall()
     # Grab the return addr
     new_routine.return_address = self.pc + instruction.instr_length
     new_routine.store_variable = instruction.store_variable
-    # First operand is calling address
-    calling_addr = decoded_opers[0]
     routine_address = self.unpackAddress(calling_addr, True)
     print("Routine address: " + hex(routine_address), file=logfile)
     # How many local variables?
@@ -781,6 +900,7 @@ class Memory:
     # Need to offset
     start_addr = self.object_table_start
     prop_addr = self.object_table_start + ((prop_number-1) * 2)
+    print("getPropertyDefault: return word: prop num:", prop_number, "val:", self.getNumber(prop_addr), file=logfile)
     prop_default = self.getNumber(prop_addr)
     return prop_default
 
@@ -798,52 +918,44 @@ class Memory:
     obj_address = obj_tree_start_address + ((obj_number-1) * self.getObjSize())
     return obj_address
 
+  def getEncodedObjectShortName(self, obj_number):
+    prop_addr = self.getPropertyTableAddress(obj_number)
+    return self.getEncodedTextLiteral(prop_addr+1)[0]
+
   def isAttributeSet(self, obj_number, attrib_number):
     obj_addr = self.getObjectAddress(obj_number)
-    attrib_bit = 1 << (attrib_number % 16)
+    attrib_bit = 0x80000000 >> (attrib_number)
     first_two_attribute_bytes = self.getNumber(obj_addr)
     last_two_attribute_bytes = self.getNumber(obj_addr+2)
-    if (attrib_number < 16):
-      return attrib_bit & first_two_attribute_bytes == attrib_bit
-    else: # attrib_number >=16 && < 32
-      return attrib_bit & last_two_attribute_bytes == attrib_bit
+    full_flags = (first_two_attribute_bytes << 16) + last_two_attribute_bytes
+    return attrib_bit & full_flags == attrib_bit
 
   def setAttribute(self, obj_number, attrib_number, value):
     obj_addr = self.getObjectAddress(obj_number)
+    full_flags = (self.getNumber(obj_addr) << 16) + self.getNumber(obj_addr+2)
     if (value):
-      attrib_bit = 1 << (attrib_number % 4)
-      if (attrib_number < 4):
-        self.mem[obj_addr] |= attrib_bit
-      if (attrib_number < 8):
-        self.mem[obj_addr+1] |= attrib_bit
-      if (attrib_number < 12):
-        self.mem[obj_addr+2] |= attrib_bit
-      else:
-        self.mem[obj_addr+3] |= attrib_bit
+      attrib_bit = 0x80000000 >> attrib_number
+      full_flags |= attrib_bit
     else:
       attrib_bit = 0xffffffff
-      attrib_bit -= 1 << (attrib_number % 4)
-      if (attrib_number < 4):
-        self.mem[obj_addr] &= attrib_bit
-      if (attrib_number < 8):
-        self.mem[obj_addr+1] &= attrib_bit
-      if (attrib_number < 12):
-        self.mem[obj_addr+2] &= attrib_bit
-      else:
-        self.mem[obj_addr+3] &= attrib_bit
+      attrib_bit -= 0x80000000 >> attrib_number
+      full_flags &= attrib_bit
+    word_1 = full_flags >> 16
+    word_2 = full_flags & 0x0000ffff
+    byte_1, byte_2 = self.breakWord(word_1)
+    byte_3, byte_4 = self.breakWord(word_2)
 
-    first_two_attribute_bytes = self.getNumber(obj_addr)
-    last_two_attribute_bytes = self.getNumber(obj_addr+2)
-    if (attrib_number < 16):
-      return attrib_bit & first_two_attribute_bytes == attrib_bit
-    else: # attrib_number >=16 && < 32
-      return attrib_bit & last_two_attribute_bytes == attrib_bit
+    self.mem[obj_addr] = byte_1
+    self.mem[obj_addr+1] = byte_2
+    self.mem[obj_addr+2] = byte_3
+    self.mem[obj_addr+3] = byte_4
+    return
 
   def getObjectRelationshipsAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
     if (self.version > 3):
-      return obj_addr + 4
-    return obj_addr + 3
+      return obj_addr + 6
+    return obj_addr + 4
 
   def getObjectParentAddress(self, obj_number):
     return self.getObjectRelationshipsAddress(obj_number)
@@ -909,7 +1021,7 @@ class Memory:
     else:
       self.mem[child_addr] = child
 
-  def breakWord(word):
+  def breakWord(self, word):
     byte_1 = (0xff00 & word) >> 8
     byte_2 = (0x00ff & word)
     return (byte_1, byte_2)
@@ -923,8 +1035,10 @@ class Memory:
     cur_prop_number = 0b00011111 & size_byte
     prop_bytes = ((size_byte - cur_prop_number) >> 5) + 1
     if (prop_bytes == 2):
+      print("getProperty: return word: prop num:", prop_number, "val:", self.getNumber(prop_start_addr), file=logfile)
       return self.getNumber(prop_start_addr)
     elif (prop_bytes == 1):
+      print("getProperty: return byte: prop num:", prop_number, "val:", self.getNumber(prop_start_addr), file=logfile)
       return self.getSmallNumber(prop_start_addr)
 
   def getPropertyTableAddress(self, obj_number):
@@ -1085,6 +1199,10 @@ class Memory:
       return "set_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xc):
       return "clear_attr"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x3):
+      return "jg"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x2):
+      return "jl"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
       return "jin"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
@@ -1093,16 +1211,34 @@ class Memory:
       return "jump"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
       return "jz"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 1):
+      return "get_sibling"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 2):
+      return "get_child"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 3):
       return "get_parent"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xA):
+      return "print_obj"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
       return "ret"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
+      return "inc"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
+      return "print_addr"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xd):
+      return "print_paddr"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0):
       return "rtrue"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 1):
+      return "rfalse"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 2):
       return "print"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
+      return "ret_popped"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
+      return "print_ret"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
@@ -1142,6 +1278,10 @@ def needsStoreVariable(opcode, version):
     return True
   if (opcode == "get_parent"):
     return True
+  if (opcode == "get_child"):
+    return True
+  if (opcode == "get_sibling"):
+    return True
   if (opcode == "get_prop"):
     return True
   if (opcode == "add"):
@@ -1157,11 +1297,19 @@ def needsStoreVariable(opcode, version):
 def needsBranchOffset(opcode, version):
   if (opcode == "jin"):
     return True
+  if (opcode == "jg"):
+    return True
+  if (opcode == "jl"):
+    return True
   if (opcode == "je"):
     return True
   if (opcode == "inc_chk"):
     return True
   if (opcode == "jz"):
+    return True
+  if (opcode == "get_child"):
+    return True
+  if (opcode == "get_sibling"):
     return True
   if (opcode == "test_attr"):
     return True
@@ -1169,6 +1317,8 @@ def needsBranchOffset(opcode, version):
 
 def needsTextLiteral(opcode, version):
   if (opcode == "print"):
+    return True
+  if (opcode == "print_ret"):
     return True
   return False
 
