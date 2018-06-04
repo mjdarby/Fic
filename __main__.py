@@ -20,6 +20,9 @@ a1 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,
 a2 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
               [' ','\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')']))
 
+input_map = dict(zip(['^','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y', 'z', '\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')'],
+                     [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]))
+
 
 # Logging
 tracefile = open('trace.txt', 'w')
@@ -123,6 +126,8 @@ class Instruction:
       main_memory.clear_attr(self)
     elif (self.opcode == 'jin'):
       main_memory.jin(self)
+    elif (self.opcode == 'read'):
+      main_memory.read(self)
     elif (self.opcode == 'get_prop'):
       main_memory.get_prop(self)
     elif (self.opcode == 'new_line'):
@@ -220,20 +225,103 @@ class Memory:
     for i in range(num_entries):
       word_1, word_2 = self.getNumber(dict_addr + byte), self.getNumber(dict_addr + byte + 2)
       self.print_string(self.getEncodedTextLiteral(dict_addr + byte)[0])
+      print((word_1 << 16) + word_2)
       self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
       byte += entry_size
 
   # Input shenaningans
-  def stringToBuffer(self):
-    pass
+  # Err.. this writes the encoded text, probably wrong?
+  # def writeToTextBuffer(self, string, address):
+  #   ztext_bytes = self.stringToEncodedBytes(string)
+  #   num_bytes = len(ztext_bytes)
+  #   self.mem[address+1] = num_bytes
+  #   for i in range(num_bytes):
+  #     self.mem[address+2+i] = ztext_bytes[i]
+  #   # If version < 5, add a zero terminator
+  #   self.mem[address+2+num_bytes] = 0
 
-  def stringToDictionaryLookup(self, string):
-    pass
+  def writeToTextBuffer(self, string, address):
+    num_bytes = len(string)
+    self.mem[address+1] = num_bytes
+    for i in range(num_bytes):
+      self.mem[address+2+i] = ord(string[i])
+    # If version < 5, add a zero terminator
+    self.mem[address+2+num_bytes] = 0
 
-  def stringToEncodedBytes(self, string):
+  def tokeniseString(self, string):
+    string = string.strip()
+    for idx in self.word_separators:
+      sep = self.getZsciiCharacter(idx)
+      string = string.replace(sep, ' ' + sep + ' ')
+    tokens = list(filter(None, string.split(' '))) # Split on space, remove empties
+    return tokens
+
+  def parseString(self, string, address):
+    # Lexical parsing! Oh my
+    tokens = self.tokeniseString(string)
+    # Second byte of addr should store total number of tokens parsed
+    self.mem[address+1] = len(tokens)
+    # Look up each token in the dictionary
+    for idx, token in enumerate(tokens):
+      byte_encoding = self.tokenToDictionaryLookup(string)
+      key = ((byte_encoding[0] << 24) + (byte_encoding[1] << 16) + (byte_encoding[2] << 8) + (byte_encoding[3]))
+      # Give addr of word in dict or 0 if not found (2 bytes)
+      if key in self.dictionary_mapping:
+        byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
+        self.mem[address+1+idx] = byte_1
+        self.mem[address+1+idx+1] = byte_2
+      else:
+        self.mem[address+1+idx] = 0
+        self.mem[address+1+idx+1] = 0
+      # Give length of word in third byte
+      self.mem[address+1+idx+2] = len(token)
+      # Give position of word in fourth byte
+      self.mem[address+1+idx+3] = 0 # TODO
+
+  def tokenToDictionaryLookup(self, string):
+    # Truncate to 6 (v3) or 9 (v4+) characters
+    trunc_length = 6
+    if (self.version > 3):
+      trunc_length = 9
+    string = string[0:trunc_length]
+    # Encode it
+    return self.stringToEncodedBytes(string, trunc_length)
+
+  def stringToEncodedBytes(self, string, min_length=0):
+    zbytes = []
+    cur_zbyte = 0
+    characters_left = 3
     # Sanitise...
     string = string.lower()
+    # Add a ^ before the non-alpha characters
+    for key in a2:
+      string = string.replace(a2[key], '^' + a2[key])
 
+    # Pad to a full 3 bytes
+    while len(string) % 3 != 0 or (len(string) < min_length):
+      string += '^'
+
+    for character in string:
+      characters_left -= 1
+      encoding = self.getFiveBitEncoding(character)
+      cur_zbyte += (encoding << (5 * characters_left))
+      if (characters_left == 0):
+        zbyte_1 = (cur_zbyte & 0xff00) >> 8
+        zbyte_2 = (cur_zbyte & 0x00ff)
+        zbytes.append(zbyte_1)
+        zbytes.append(zbyte_2)
+        cur_zbyte = 0
+        characters_left = 3
+
+    # Mark last byte-pair as the end
+    last_byte = zbytes[-2]
+    last_byte |= 0x80
+    zbytes[-2] = last_byte
+
+    return zbytes
+
+  def getFiveBitEncoding(self, character):
+    return input_map[character]
 
   # print
   def getEncodedAbbreviationString(self, idx):
@@ -347,12 +435,26 @@ class Memory:
   def print_number(self, number):
     print(number, end='')
 
-  def print_zscii_character(self, character):
+  def getZsciiCharacter(self, idx):
     table = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
-    target_character = table[character-0x21] # Offset by 0x21
+    target_character = table[idx-0x21] # Offset by 0x21
+    return target_character
+
+  def print_zscii_character(self, character):
+    target_character = self.getZsciiCharacter(character)
     print(target_character, end='')
 
   # opcodes
+  def read(self, instruction):
+    print("read", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    text_buffer_address = decoded_opers[0]
+    parse_buffer_address = decoded_opers[1]
+    string = input()
+    self.writeToTextBuffer(string, text_buffer_address)
+    self.parseString(string, parse_buffer_address)
+    self.pc += instruction.instr_length
+
   def set_attr(self, instruction):
     print("set_attr", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -459,7 +561,7 @@ class Memory:
     # Branch check...
     self.pc += instruction.instr_length
     val_smaller = value < chk_value
-    self.handleJumpDestination(val_bigger, instruction)
+    self.handleJumpDestination(val_smaller, instruction)
 
   def inc(self, instruction):
     print("inc", file=logfile)
@@ -1363,6 +1465,8 @@ class Memory:
       return "push"
     if (operand_type == Operand.VAR and byte == 233):
       return "pull"
+    if (operand_type == Operand.VAR and byte == 228):
+      return "read"
     pass
 
   def getExtendedOpcode(self, byte):
