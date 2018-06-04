@@ -8,8 +8,8 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","loadw","loadb"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","loadw","loadb"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -56,6 +56,8 @@ class Instruction:
       main_memory.call(self)
     elif (self.opcode == 'add'):
       main_memory.add(self)
+    elif (self.opcode == 'mul'):
+      main_memory.mul(self)
     elif (self.opcode == 'and'):
       main_memory.and_1(self)
     elif (self.opcode == 'je'):
@@ -92,6 +94,8 @@ class Instruction:
       main_memory.loadb(self)
     elif (self.opcode == 'storew'):
       main_memory.storew(self)
+    elif (self.opcode == 'storeb'):
+      main_memory.storeb(self)
     elif (self.opcode == 'store'):
       main_memory.store(self)
     elif (self.opcode == 'put_prop'):
@@ -134,6 +138,8 @@ class Instruction:
       main_memory.new_line(self)
     elif (self.opcode == 'test_attr'):
       main_memory.test_attr(self)
+    elif (self.opcode == 'test'):
+      main_memory.test(self)
     elif (self.opcode == 'sub'):
       main_memory.sub(self)
     else:
@@ -224,8 +230,6 @@ class Memory:
     # Load 'em up!
     for i in range(num_entries):
       word_1, word_2 = self.getNumber(dict_addr + byte), self.getNumber(dict_addr + byte + 2)
-      self.print_string(self.getEncodedTextLiteral(dict_addr + byte)[0])
-      print((word_1 << 16) + word_2)
       self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
       byte += entry_size
 
@@ -263,7 +267,7 @@ class Memory:
     self.mem[address+1] = len(tokens)
     # Look up each token in the dictionary
     for idx, token in enumerate(tokens):
-      byte_encoding = self.tokenToDictionaryLookup(string)
+      byte_encoding = self.tokenToDictionaryLookup(token)
       key = ((byte_encoding[0] << 24) + (byte_encoding[1] << 16) + (byte_encoding[2] << 8) + (byte_encoding[3]))
       # Give addr of word in dict or 0 if not found (2 bytes)
       if key in self.dictionary_mapping:
@@ -667,6 +671,8 @@ class Memory:
     self.handleJumpDestination(parent == actual_parent, instruction)
 
   def handleJumpDestination(self, condition_met, instruction):
+    print("jump offset: " + hex(instruction.branch_offset), file=logfile)
+    print("jump on true: " + str(instruction.branch_on_true), file=logfile)
     if condition_met and instruction.branch_on_true:
       if (instruction.branch_offset == 0):
         self.rfalse(None)
@@ -721,11 +727,22 @@ class Memory:
     attrib_number = decoded_opers[1]
     print("obj_number: " + str(obj_number), file=logfile)
     print("attrib_number: " + str(attrib_number), file=logfile)
-    print("jump offset: " + hex(instruction.branch_offset), file=logfile)
-    print("jump on true: " + str(instruction.branch_on_true), file=logfile)
     attrib_set = self.isAttributeSet(obj_number, attrib_number)
     self.pc += instruction.instr_length # Move past the instr regardless
     self.handleJumpDestination(attrib_set, instruction)
+
+  def test(self, instruction):
+    print("test", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    bitmap = decoded_opers[0]
+    flags = decoded_opers[1]
+    print("bitmap: " + bin(bitmap), file=logfile)
+    print("flags: " + bin(flags), file=logfile)
+    print("jump offset: " + hex(instruction.branch_offset), file=logfile)
+    print("jump on true: " + str(instruction.branch_on_true), file=logfile)
+    flags_match = bitmap & flags == flags
+    self.pc += instruction.instr_length # Move past the instr regardless
+    self.handleJumpDestination(flags_match, instruction)
 
   def jump(self, instruction):
     print("jump", file=logfile)
@@ -835,12 +852,32 @@ class Memory:
     self.mem[base_addr + (2*idx) + 1] = bottom_byte
     self.pc += instruction.instr_length # Move past the instr
 
+  def storeb(self, instruction):
+    print("storeb", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    base_addr = decoded_opers[0]
+    idx = decoded_opers[1]
+    value = decoded_opers[2]
+    print("Base addr: " + hex(base_addr), file=logfile)
+    print("Idx: " + hex(idx), file=logfile)
+    print("Value to store: " + hex(value), file=logfile)
+    self.mem[base_addr + (idx)] = value
+    self.pc += instruction.instr_length # Move past the instr
+
   def add(self, instruction):
     print("add", file=logfile)
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
     print(decoded_opers, file=logfile)
     self.setVariable(instruction.store_variable, decoded_opers[0] + decoded_opers[1])
+    self.pc += instruction.instr_length
+
+  def mul(self, instruction):
+    print("mul", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    print(decoded_opers, file=logfile)
+    self.setVariable(instruction.store_variable, decoded_opers[0] * decoded_opers[1])
     self.pc += instruction.instr_length
 
   def and_1(self, instruction):
@@ -1068,7 +1105,7 @@ class Memory:
         branch_offset = branch_byte & 0b00111111
       else:
         branch_byte_two = self.getSmallNumber(next_byte)
-        branch_offset = ((branch_byte & 0b00011111) << 5) + branch_byte_two
+        branch_offset = getSignedEquivalent((branch_byte & 0b00111111) << 6) + branch_byte_two
         next_byte += 1
 
     # If this opcode needs a string literal, get that...
@@ -1386,6 +1423,8 @@ class Memory:
       return "dec_chk"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
       return "inc_chk"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x7):
+      return "test"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
       return "test_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 13):
@@ -1400,6 +1439,8 @@ class Memory:
       return "and"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
       return "sub"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
+      return "mul"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
       return "insert_obj"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xb):
@@ -1457,6 +1498,8 @@ class Memory:
       return "print_num"
     if (operand_type == Operand.VAR and byte == 225):
       return "storew"
+    if (operand_type == Operand.VAR and byte == 226):
+      return "storeb"
     if (operand_type == Operand.VAR and byte == 227):
       return "put_prop"
     if (operand_type == Operand.VAR and byte == 229):
