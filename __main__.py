@@ -272,15 +272,15 @@ class Memory:
       # Give addr of word in dict or 0 if not found (2 bytes)
       if key in self.dictionary_mapping:
         byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
-        self.mem[address+1+idx] = byte_1
-        self.mem[address+1+idx+1] = byte_2
+        self.mem[address+2+idx] = byte_1
+        self.mem[address+2+idx+1] = byte_2
       else:
-        self.mem[address+1+idx] = 0
-        self.mem[address+1+idx+1] = 0
+        self.mem[address+2+idx] = 0
+        self.mem[address+2+idx+1] = 0
       # Give length of word in third byte
-      self.mem[address+1+idx+2] = len(token)
+      self.mem[address+2+idx+2] = len(token)
       # Give position of word in fourth byte
-      self.mem[address+1+idx+3] = 0 # TODO
+      self.mem[address+2+idx+3] = 0 # TODO
 
   def tokenToDictionaryLookup(self, string):
     # Truncate to 6 (v3) or 9 (v4+) characters
