@@ -7,10 +7,10 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Writing save files
 
 ## Architecture
-- PC
-- Stack
-- Global variables (table begins at word 6, or byte 12)
-- Local variables
+- PC - Done
+- Stack - Done
+- Global variables - Done
+- Local variables - Done
 - Hardware interaction
 - Memory map - Done
 - R_O - Done
@@ -19,15 +19,30 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
   - Seeding
   - Predictable
   - True random
-- ZSCII
-- Reading instructions - Branching and some other stuff left
-- Executing instructions
+- ZSCII - Done?
+- Reading instructions - Done
+- Executing instructions - Done
 - Decode packed addresses - Done
-- Calling routines - Setting initial values
-- Calling routines - Managing the routine call-stack
+- Calling routines - Setting initial values - Done
+- Calling routines - Managing the routine call-stack - Done
 
 ## Opcodes
 - Factor out the argument decoding - Done
+- DEC
+- DIV
+- GET_NEXT_PROP
+- GET_PROP_ADDR
+- GET_PROP_LEN
+- LOAD
+- MOD
+- OR
+- QUIT
+- RANDOM
+- READ
+- RESTART
+- RESTORE
+- SAVE
+- VERIFY
 
 ## Maybes
 - Rename 'getNumber' to 'getWord'?
