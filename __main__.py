@@ -1,4 +1,5 @@
 import sys
+import random
 from enum import Enum
 
 # Enums
@@ -9,7 +10,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","loadw","loadb"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","loadw","loadb", "get_prop_addr", "get_prop_len", "random"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -98,6 +99,10 @@ class Instruction:
       main_memory.storeb(self)
     elif (self.opcode == 'store'):
       main_memory.store(self)
+    elif (self.opcode == 'get_prop_addr'):
+      main_memory.get_prop_addr(self)
+    elif (self.opcode == 'get_prop_len'):
+      main_memory.get_prop_len(self)
     elif (self.opcode == 'put_prop'):
       main_memory.put_prop(self)
     elif (self.opcode == 'jump'):
@@ -142,6 +147,10 @@ class Instruction:
       main_memory.test(self)
     elif (self.opcode == 'sub'):
       main_memory.sub(self)
+    elif (self.opcode == 'div'):
+      main_memory.div(self)
+    elif (self.opcode == 'random'):
+      main_memory.random(self)
     else:
       raise Exception("Not implemented")
 
@@ -166,6 +175,7 @@ class StoryLoader:
 class RoutineCall:
   def __init__(self):
     self.local_variables = []
+    self.stack_state = []
     self.return_address = 0x0000
 
   def print_debug(self):
@@ -179,6 +189,11 @@ def getSignedEquivalent(num):
   if num > 0x7FFF:
     num = 0x10000 - num
     num = -num
+  return num
+
+def getHexValue(num):
+  if num < 0:
+    num = 0x10000 + num
   return num
 
 # Memory - broken up into dynamic/high/static
@@ -245,12 +260,17 @@ class Memory:
   #   self.mem[address+2+num_bytes] = 0
 
   def writeToTextBuffer(self, string, address):
+    string = string.lower()
     num_bytes = len(string)
-    self.mem[address+1] = num_bytes
+    text_offset = 1
+    if (self.version > 4):
+      self.mem[address+1] = num_bytes
+      text_offset = 2
     for i in range(num_bytes):
-      self.mem[address+2+i] = ord(string[i])
+      self.mem[address+text_offset+i] = ord(string[i])
     # If version < 5, add a zero terminator
-    self.mem[address+2+num_bytes] = 0
+    if (self.version < 5):
+      self.mem[address+text_offset+num_bytes] = 0
 
   def tokeniseString(self, string):
     string = string.strip()
@@ -260,13 +280,14 @@ class Memory:
     tokens = list(filter(None, string.split(' '))) # Split on space, remove empties
     return tokens
 
-  def parseString(self, string, address):
+  def parseString(self, string, address, text_buffer_address):
     # Lexical parsing! Oh my
     tokens = self.tokeniseString(string)
     # Second byte of addr should store total number of tokens parsed
     self.mem[address+1] = len(tokens)
     # Look up each token in the dictionary
     for idx, token in enumerate(tokens):
+      idx = idx*4
       byte_encoding = self.tokenToDictionaryLookup(token)
       key = ((byte_encoding[0] << 24) + (byte_encoding[1] << 16) + (byte_encoding[2] << 8) + (byte_encoding[3]))
       # Give addr of word in dict or 0 if not found (2 bytes)
@@ -280,7 +301,9 @@ class Memory:
       # Give length of word in third byte
       self.mem[address+2+idx+2] = len(token)
       # Give position of word in fourth byte
-      self.mem[address+2+idx+3] = 0 # TODO
+      string_idx = string.find(token)+1
+      print(token, string_idx)
+      self.mem[address+2+idx+3] = string_idx
 
   def tokenToDictionaryLookup(self, string):
     # Truncate to 6 (v3) or 9 (v4+) characters
@@ -456,7 +479,7 @@ class Memory:
     parse_buffer_address = decoded_opers[1]
     string = input()
     self.writeToTextBuffer(string, text_buffer_address)
-    self.parseString(string, parse_buffer_address)
+    self.parseString(string, parse_buffer_address, text_buffer_address)
     self.pc += instruction.instr_length
 
   def set_attr(self, instruction):
@@ -483,7 +506,7 @@ class Memory:
     self.pc += instruction.instr_length
 
   def pull(self, instruction):
-    print("push", file=logfile)
+    print("pull", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     variable_to_pull_to = decoded_opers[0]
     stack_val = self.getVariable(0)
@@ -632,6 +655,8 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
+    # Reset the stack...
+    self.stack = current_routine.stack_state
     # Return into store variable and...
     self.setVariable(current_routine.store_variable, decoded_opers[0])
     # ... kick execution home
@@ -640,14 +665,19 @@ class Memory:
   def ret_popped(self, instruction):
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
+    # Reset the stack...
+    val = self.getVariable(0)
+    self.stack = current_routine.stack_state
     # Pop into store variable and...
-    self.setVariable(current_routine.store_variable, self.getVariable(0))
+    self.setVariable(current_routine.store_variable, val)
     # ... kick execution home
     self.pc = current_routine.return_address
 
   def rtrue(self, instruction):
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
+    # Reset the stack...
+    self.stack = current_routine.stack_state
     # Return TRUE into store variable and...
     self.setVariable(current_routine.store_variable, 1)
     # ... kick execution home
@@ -656,6 +686,8 @@ class Memory:
   def rfalse(self, instruction):
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
+    # Reset the stack...
+    self.stack = current_routine.stack_state
     # Return FALSE into store variable and...
     self.setVariable(current_routine.store_variable, 0)
     # ... kick execution home
@@ -698,7 +730,11 @@ class Memory:
     print("je", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     self.pc += instruction.instr_length # Move past the instr regardless
-    self.handleJumpDestination(decoded_opers[0] == decoded_opers[1], instruction)
+    test_val = decoded_opers[0]
+    match = False
+    for compare_val in decoded_opers[1:]:
+      match |= test_val == compare_val
+    self.handleJumpDestination(match, instruction)
 
   def jg(self, instruction):
     print("jg", file=logfile)
@@ -732,7 +768,7 @@ class Memory:
     self.handleJumpDestination(attrib_set, instruction)
 
   def test(self, instruction):
-    print("test", file=logfile)
+    print("testbitmap", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     bitmap = decoded_opers[0]
     flags = decoded_opers[1]
@@ -750,6 +786,30 @@ class Memory:
     print(decoded_opers[0], file=logfile)
     print(getSignedEquivalent(decoded_opers[0]), file=logfile)
     self.pc += instruction.instr_length + getSignedEquivalent(decoded_opers[0]) - 2
+
+  def get_prop_addr(self, instruction):
+    print("get_prop_addr", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_number = decoded_opers[0]
+    prop_number = decoded_opers[1]
+    print("Obj number: " + str(obj_number), file=logfile)
+    print("Prop number: " + str(prop_number), file=logfile)
+    prop_addr = self.getPropertyAddress(obj_number, prop_number)
+    self.setVariable(instruction.store_variable, prop_addr)
+    self.pc += instruction.instr_length # Move past the instr
+
+  def get_prop_len(self, instruction):
+    print("get_prop_len", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    prop_addr = decoded_opers[0]
+    print("Prop addr: " + hex(prop_addr), file=logfile)
+    prop_bytes = 0
+    if prop_addr != 0:
+      prop_size = self.getSmallNumber(prop_addr)
+      cur_prop_number = 0b00011111 & prop_size
+      prop_bytes = ((prop_size - cur_prop_number) >> 5) + 1
+    self.setVariable(instruction.store_variable, prop_bytes)
+    self.pc += instruction.instr_length # Move past the instr
 
   def put_prop(self, instruction):
     print("put_prop", file=logfile)
@@ -868,16 +928,18 @@ class Memory:
     print("add", file=logfile)
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
-    print(decoded_opers, file=logfile)
-    self.setVariable(instruction.store_variable, decoded_opers[0] + decoded_opers[1])
+    val = decoded_opers[0] + decoded_opers[1]
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
     self.pc += instruction.instr_length
 
   def mul(self, instruction):
     print("mul", file=logfile)
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
-    print(decoded_opers, file=logfile)
-    self.setVariable(instruction.store_variable, decoded_opers[0] * decoded_opers[1])
+    val = decoded_opers[0] * decoded_opers[1]
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
     self.pc += instruction.instr_length
 
   def and_1(self, instruction):
@@ -892,7 +954,31 @@ class Memory:
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
     print(decoded_opers, file=logfile)
-    self.setVariable(instruction.store_variable, decoded_opers[0] - decoded_opers[1])
+    val = decoded_opers[0] - decoded_opers[1]
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
+    self.pc += instruction.instr_length
+
+  def div(self, instruction):
+    print("div", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    val = decoded_opers[0] // decoded_opers[1]
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
+    self.pc += instruction.instr_length
+
+  def random(self, instruction):
+    print("random", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    val = decoded_opers[0]
+    if val > 0:
+      random_val = random.randint(1, val)
+      self.setVariable(instruction.store_variable, random_val)
+    else:
+      # TODO - Seed generator with negative value or 0
+      self.setVariable(instruction.store_variable, 0)
     self.pc += instruction.instr_length
 
   def call(self, instruction):
@@ -911,6 +997,7 @@ class Memory:
     # Grab the return addr
     new_routine.return_address = self.pc + instruction.instr_length
     new_routine.store_variable = instruction.store_variable
+    new_routine.stack_state = list(self.stack)
     routine_address = self.unpackAddress(calling_addr, True)
     print("Routine address: " + hex(routine_address), file=logfile)
     # How many local variables?
@@ -995,10 +1082,8 @@ class Memory:
 
   def setGlobalVariable(self, variable_number, value):
     print("Setting global variable", file=logfile)
-    # TODO: If negative, convert to 2's Complement
     # Split value into two bytes
-    top_byte = (value & 0xff00) >> 8
-    bottom_byte = value & 0x00ff
+    top_byte, bottom_byte = self.breakWord(value)
     top_addr = self.global_table_start + (variable_number * 2)
     self.mem[top_addr] = top_byte
     self.mem[top_addr + 1] = bottom_byte
@@ -1101,11 +1186,18 @@ class Memory:
       branch_byte = self.getSmallNumber(next_byte)
       branch_on_true = (branch_byte & 0b10000000) == 0b10000000
       next_byte += 1
-      if (branch_byte & 0b01000000 == 0b01000000):
+      if ((branch_byte & 0b01000000) == 0b01000000):
         branch_offset = branch_byte & 0b00111111
       else:
         branch_byte_two = self.getSmallNumber(next_byte)
-        branch_offset = getSignedEquivalent((branch_byte & 0b00111111) << 6) + branch_byte_two
+        print("branch bytes:", hex(branch_byte), hex(branch_byte_two), file=logfile)
+        print("branch bytes:", bin(branch_byte), bin(branch_byte_two), file=logfile)
+        val = ((branch_byte & 0b00011111) << 8) + branch_byte_two
+        if ((branch_byte & 0b00100000) == 0b00100000):
+          val = -(0b10000000000000 - val)
+#          val = -(val+1)
+#        val = getSignedEquivalent((branch_byte & 0b00111111) << 8) + branch_byte_two
+        branch_offset = val
         next_byte += 1
 
     # If this opcode needs a string literal, get that...
@@ -1325,12 +1417,16 @@ class Memory:
       size_byte = self.getSmallNumber(size_byte_addr)
     return 0
 
-  def setProperty(self, obj_number, prop_number, value):
-    prop_address = self.getPropertyAddress(obj_number, prop_number)
+  def getPropertySize(self, prop_address):
     size_byte_addr = prop_address
     size_byte = self.getSmallNumber(size_byte_addr)
     cur_prop_number = 0b00011111 & size_byte
-    prop_bytes = ((size_byte - cur_prop_number) / 32) + 1
+    prop_bytes = ((size_byte - cur_prop_number) >> 5) + 1
+    return prop_bytes
+
+  def setProperty(self, obj_number, prop_number, value):
+    prop_address = self.getPropertyAddress(obj_number, prop_number)
+    prop_bytes = self.getPropertySize(prop_address)
     top_byte = (value & 0xff00) >> 8
     bottom_byte = value & 0x00ff
     if (prop_bytes == 2):
@@ -1437,6 +1533,8 @@ class Memory:
       return "add"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
       return "and"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
+      return "div"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
       return "sub"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
@@ -1455,6 +1553,8 @@ class Memory:
       return "jin"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
       return "get_prop"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x12):
+      return "get_prop_addr"
     if (operand_type == Operand.OneOP and byte & 0b00011111 == 0x9):
       return "remove_obj"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
@@ -1471,6 +1571,8 @@ class Memory:
       return "print_obj"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
       return "ret"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x4):
+      return "get_prop_len"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
       return "inc"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
@@ -1496,6 +1598,8 @@ class Memory:
         return "call"
     if (operand_type == Operand.VAR and byte == 230):
       return "print_num"
+    if (operand_type == Operand.VAR and byte == 231):
+      return "random"
     if (operand_type == Operand.VAR and byte == 225):
       return "storew"
     if (operand_type == Operand.VAR and byte == 226):

@@ -31,14 +31,13 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - DEC
 - DIV
 - GET_NEXT_PROP
-- GET_PROP_ADDR
-- GET_PROP_LEN
 - LOAD
 - MOD
 - OR
-- QUIT
 - RANDOM
 - READ
+
+- QUIT
 - RESTART
 - RESTORE
 - SAVE
@@ -46,3 +45,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 
 ## Maybes
 - Rename 'getNumber' to 'getWord'?
+
+## Known issues
+- Negative number storage - currently do not correctly convert to negative form
