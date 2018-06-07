@@ -249,16 +249,6 @@ class Memory:
       byte += entry_size
 
   # Input shenaningans
-  # Err.. this writes the encoded text, probably wrong?
-  # def writeToTextBuffer(self, string, address):
-  #   ztext_bytes = self.stringToEncodedBytes(string)
-  #   num_bytes = len(ztext_bytes)
-  #   self.mem[address+1] = num_bytes
-  #   for i in range(num_bytes):
-  #     self.mem[address+2+i] = ztext_bytes[i]
-  #   # If version < 5, add a zero terminator
-  #   self.mem[address+2+num_bytes] = 0
-
   def writeToTextBuffer(self, string, address):
     string = string.lower()
     num_bytes = len(string)
@@ -276,7 +266,7 @@ class Memory:
     string = string.strip()
     for idx in self.word_separators:
       sep = self.getZsciiCharacter(idx)
-      string = string.replace(sep, ' ' + sep + ' ')
+      string = string.replace(sep, ' ' + sep + ' ') # Force separators to be separate tokens
     tokens = list(filter(None, string.split(' '))) # Split on space, remove empties
     return tokens
 
@@ -293,6 +283,7 @@ class Memory:
       # Give addr of word in dict or 0 if not found (2 bytes)
       if key in self.dictionary_mapping:
         byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
+        print(hex(self.dictionary_mapping[key]))
         self.mem[address+2+idx] = byte_1
         self.mem[address+2+idx+1] = byte_2
       else:
@@ -302,7 +293,6 @@ class Memory:
       self.mem[address+2+idx+2] = len(token)
       # Give position of word in fourth byte
       string_idx = string.find(token)+1
-      print(token, string_idx)
       self.mem[address+2+idx+3] = string_idx
 
   def tokenToDictionaryLookup(self, string):
@@ -325,7 +315,7 @@ class Memory:
       string = string.replace(a2[key], '^' + a2[key])
 
     # Pad to a full 3 bytes
-    while len(string) % 3 != 0 or (len(string) < min_length):
+    while (len(string) % 3 != 0) or (len(string) < min_length):
       string += '^'
 
     for character in string:
@@ -521,14 +511,7 @@ class Memory:
     print("insert_obj:obj to insert:", inserted_obj_num, file=logfile)
     print("insert_obj:destination obj:", destination_obj, file=logfile)
 
-    # Remove original parentage, upgrade sibling if any
-    original_parent = self.getObjectParent(inserted_obj_num)
-    original_sibling = self.getObjectSibling(inserted_obj_num)
-    if (original_parent > 0):
-      print("insert_obj:former parent:", original_parent, file=logfile)
-      self.setObjectChild(original_parent, original_sibling)
-      if (original_sibling > 0):
-        self.setObjectParent(original_sibling, original_parent)
+    self.removeObject(inserted_obj_num)
 
     # If existing child for destination object, make them siblings
     original_child = self.getObjectChild(destination_obj)
@@ -540,54 +523,74 @@ class Memory:
     self.setObjectParent(inserted_obj_num, destination_obj)
     self.setObjectChild(destination_obj, inserted_obj_num)
 
+    # DEBUG: Confirm new relationships
+    if (self.getObjectParent(inserted_obj_num) != destination_obj):
+      raise Exception("Busted")
+    if (self.getObjectChild(destination_obj) != inserted_obj_num):
+      raise Exception("Busted")
+    if (self.getObjectSibling(inserted_obj_num) != original_child):
+      raise Exception("Busted")
+
     self.pc += instruction.instr_length
 
+  def removeObject(self, obj_num):
+    # Remove original parentage, upgrade sibling if first child
+    original_parent = self.getObjectParent(obj_num)
+    original_sibling = self.getObjectSibling(obj_num)
+    if (original_parent > 0 and self.getObjectChild(original_parent) == obj_num):
+      print("remove_obj:former parent:", original_parent, file=logfile)
+      self.setObjectChild(original_parent, original_sibling)
+    elif (original_parent > 0):
+      # Child but not first child
+      older_sibling = self.getObjectChild(original_parent)
+      while self.getObjectSibling(older_sibling) != obj_num:
+        older_sibling = self.getObjectSibling(older_sibling)
+      self.setObjectSibling(older_sibling, self.getObjectSibling(obj_num))
+
+    self.setObjectParent(obj_num, 0)
+    self.setObjectSibling(obj_num, 0)
+
   def remove_obj(self, instruction):
-    print("insert_obj", file=logfile)
+    print("remove_obj", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     obj_num = decoded_opers[0]
     print("remove_obj:obj to orphan:", obj_num, file=logfile)
 
-    # Remove original parentage, upgrade sibling if any
-    original_parent = self.getObjectParent(obj_num)
-    original_sibling = self.getObjectSibling(obj_num)
-    if (original_parent > 0):
-      print("remove_obj:former parent:", original_parent, file=logfile)
-      self.setObjectChild(original_parent, original_sibling)
-      if (original_sibling > 0):
-        self.setObjectParent(original_sibling, original_parent)
-
-    self.setObjectParent(obj_num, 0)
+    self.removeObject(obj_num)
     self.pc += instruction.instr_length
 
   def inc_chk(self, instruction):
     print("inc_chk", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     variable_num = decoded_opers[0]
-    chk_value = decoded_opers[1]
+    chk_value = getSignedEquivalent(decoded_opers[1])
     value = getSignedEquivalent(self.getVariable(variable_num))
     print("inc_chk:value_in_var:", hex(variable_num), value, file=logfile)
     # Inc...
     value += 1
-    self.setVariable(variable_num, value)
     # Branch check...
-    self.pc += instruction.instr_length
     val_bigger = value > chk_value
+    value = getHexValue(value)
+    self.setVariable(variable_num, value)
+    self.pc += instruction.instr_length
     self.handleJumpDestination(val_bigger, instruction)
 
   def dec_chk(self, instruction):
     print("dec_chk", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     variable_num = decoded_opers[0]
-    chk_value = decoded_opers[1]
+    chk_value = getSignedEquivalent(decoded_opers[1])
     value = getSignedEquivalent(self.getVariable(variable_num))
     print("dec_chk:value_in_var:", hex(variable_num), value, file=logfile)
-    # Inc...
+    # Dec...
     value -= 1
-    self.setVariable(variable_num, value)
     # Branch check...
-    self.pc += instruction.instr_length
     val_smaller = value < chk_value
+    # Write adjusted value back into memory
+    value = getHexValue(value)
+    self.setVariable(variable_num, value)
+    # Jump if necessary
+    self.pc += instruction.instr_length
     self.handleJumpDestination(val_smaller, instruction)
 
   def inc(self, instruction):
@@ -596,6 +599,7 @@ class Memory:
     variable_num = decoded_opers[0]
     value = getSignedEquivalent(self.getVariable(variable_num))
     value += 1
+    value = getHexValue(value)
     self.setVariable(variable_num, value)
     self.pc += instruction.instr_length
 
@@ -653,43 +657,27 @@ class Memory:
   def ret(self, instruction):
     # Return value in parameter
     decoded_opers  = self.decodeOperands(instruction)
-    # Pop the current routine so setVariable is targeting the right set of locals
-    current_routine = self.routine_callstack.pop()
-    # Reset the stack...
-    self.stack = current_routine.stack_state
-    # Return into store variable and...
-    self.setVariable(current_routine.store_variable, decoded_opers[0])
-    # ... kick execution home
-    self.pc = current_routine.return_address
+    self.ret_helper(instruction, decoded_opers[0])
 
   def ret_popped(self, instruction):
-    # Pop the current routine so setVariable is targeting the right set of locals
-    current_routine = self.routine_callstack.pop()
-    # Reset the stack...
-    val = self.getVariable(0)
-    self.stack = current_routine.stack_state
-    # Pop into store variable and...
-    self.setVariable(current_routine.store_variable, val)
-    # ... kick execution home
-    self.pc = current_routine.return_address
+    # Return bottom of stack
+    self.ret_helper(instruction, self.getVariable(0))
 
   def rtrue(self, instruction):
-    # Pop the current routine so setVariable is targeting the right set of locals
-    current_routine = self.routine_callstack.pop()
-    # Reset the stack...
-    self.stack = current_routine.stack_state
-    # Return TRUE into store variable and...
-    self.setVariable(current_routine.store_variable, 1)
-    # ... kick execution home
-    self.pc = current_routine.return_address
+    # Return true
+    self.ret_helper(instruction, 1)
 
   def rfalse(self, instruction):
+    # Return false
+    self.ret_helper(instruction, 0)
+
+  def ret_helper(self, instruction, ret_val):
     # Pop the current routine so setVariable is targeting the right set of locals
     current_routine = self.routine_callstack.pop()
     # Reset the stack...
     self.stack = current_routine.stack_state
-    # Return FALSE into store variable and...
-    self.setVariable(current_routine.store_variable, 0)
+    # Return ret_val into store variable and...
+    self.setVariable(current_routine.store_variable, ret_val)
     # ... kick execution home
     self.pc = current_routine.return_address
 
@@ -729,11 +717,11 @@ class Memory:
   def je(self, instruction):
     print("je", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
-    self.pc += instruction.instr_length # Move past the instr regardless
     test_val = decoded_opers[0]
     match = False
     for compare_val in decoded_opers[1:]:
       match |= test_val == compare_val
+    self.pc += instruction.instr_length # Move past the instr regardless
     self.handleJumpDestination(match, instruction)
 
   def jg(self, instruction):
@@ -783,9 +771,8 @@ class Memory:
   def jump(self, instruction):
     print("jump", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
-    print(decoded_opers[0], file=logfile)
-    print(getSignedEquivalent(decoded_opers[0]), file=logfile)
-    self.pc += instruction.instr_length + getSignedEquivalent(decoded_opers[0]) - 2
+    jump_offset = getSignedEquivalent(decoded_opers[0])
+    self.pc += instruction.instr_length + jump_offset - 2
 
   def get_prop_addr(self, instruction):
     print("get_prop_addr", file=logfile)
@@ -805,9 +792,7 @@ class Memory:
     print("Prop addr: " + hex(prop_addr), file=logfile)
     prop_bytes = 0
     if prop_addr != 0:
-      prop_size = self.getSmallNumber(prop_addr)
-      cur_prop_number = 0b00011111 & prop_size
-      prop_bytes = ((prop_size - cur_prop_number) >> 5) + 1
+      prop_bytes = self.getPropertySize(prop_addr)
     self.setVariable(instruction.store_variable, prop_bytes)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -822,6 +807,11 @@ class Memory:
     print("Prop number: " + str(prop_number), file=logfile)
     print("Value: " + hex(value), file=logfile)
     self.setProperty(obj_number, prop_number, value)
+
+    # DEBUG: Validate
+    if (self.getProperty(obj_number, prop_number) != value):
+        raise Exception("Error setting property")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def get_parent(self, instruction):
@@ -840,8 +830,8 @@ class Memory:
     obj = decoded_opers[0]
     child = self.getObjectChild(obj)
     print("get_child: Child got:", child, file=logfile)
-    self.setVariable(instruction.store_variable, child)
     child_exists = child != 0
+    self.setVariable(instruction.store_variable, child)
     self.pc += instruction.instr_length # Move past the instr
     self.handleJumpDestination(child_exists, instruction)
 
@@ -850,8 +840,9 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     obj = decoded_opers[0]
     sibling = self.getObjectSibling(obj)
-    self.setVariable(instruction.store_variable, sibling)
+    print("get_sibling: Sibling got:", sibling, file=logfile)
     sibling_exists = sibling != 0
+    self.setVariable(instruction.store_variable, sibling)
     self.pc += instruction.instr_length # Move past the instr
     self.handleJumpDestination(sibling_exists, instruction)
 
@@ -871,6 +862,11 @@ class Memory:
     print("target_var: " + hex(target_var), file=logfile)
     print("value: " + str(value), file=logfile)
     self.setVariable(target_var, value)
+
+    # DEBUG: Validate
+    if (self.peekVariable(target_var) != value):
+      raise Exception("Error storing value")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def loadw(self, instruction):
@@ -882,7 +878,13 @@ class Memory:
     print("Idx: " + hex(idx), file=logfile)
     print("Target addr: ", hex(base_addr + (2*idx)), file=logfile)
     print("Store target: " + hex(instruction.store_variable), file=logfile)
-    self.setVariable(instruction.store_variable, self.getNumber(base_addr + (2*idx)))
+    word = self.getNumber(base_addr + (2*idx))
+    self.setVariable(instruction.store_variable, word)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != word):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def loadb(self, instruction):
@@ -893,7 +895,13 @@ class Memory:
     print("Base addr: " + hex(base_addr), file=logfile)
     print("Idx: " + hex(idx), file=logfile)
     print("Store target: " + hex(instruction.store_variable), file=logfile)
-    self.setVariable(instruction.store_variable, self.mem[base_addr + (idx)])
+    byte = self.mem[base_addr + (idx)]
+    self.setVariable(instruction.store_variable, byte)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != byte):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def storew(self, instruction):
@@ -906,10 +914,14 @@ class Memory:
     print("Idx: " + hex(idx), file=logfile)
     print("Value to store: " + hex(value), file=logfile)
     # Split value into bytes
-    top_byte = (value & 0xff00) >> 8
-    bottom_byte = value & 0x00ff
+    top_byte, bottom_byte = self.breakWord(value)
     self.mem[base_addr + (2*idx)] = top_byte
     self.mem[base_addr + (2*idx) + 1] = bottom_byte
+
+    # DEBUG: Validate
+    if (self.getNumber(base_addr + (2*idx)) != value):
+      raise Exception("Error storing word")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def storeb(self, instruction):
@@ -922,6 +934,11 @@ class Memory:
     print("Idx: " + hex(idx), file=logfile)
     print("Value to store: " + hex(value), file=logfile)
     self.mem[base_addr + (idx)] = value
+
+    # DEBUG
+    if (self.getSmallNumber(base_addr + (idx)) != value):
+      raise Exception("Error storing word")
+
     self.pc += instruction.instr_length # Move past the instr
 
   def add(self, instruction):
@@ -931,6 +948,11 @@ class Memory:
     val = decoded_opers[0] + decoded_opers[1]
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length
 
   def mul(self, instruction):
@@ -940,6 +962,11 @@ class Memory:
     val = decoded_opers[0] * decoded_opers[1]
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length
 
   def and_1(self, instruction):
@@ -947,6 +974,11 @@ class Memory:
     decoded_opers = self.decodeOperands(instruction)
     print(decoded_opers, file=logfile)
     self.setVariable(instruction.store_variable, decoded_opers[0] & decoded_opers[1])
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != decoded_opers[0] & decoded_opers[1]):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length
 
   def sub(self, instruction):
@@ -957,6 +989,10 @@ class Memory:
     val = decoded_opers[0] - decoded_opers[1]
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
+
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length
 
   def div(self, instruction):
@@ -966,6 +1002,10 @@ class Memory:
     val = decoded_opers[0] // decoded_opers[1]
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
+
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
     self.pc += instruction.instr_length
 
   def random(self, instruction):
@@ -1012,10 +1052,13 @@ class Memory:
       else:
         new_routine.local_variables.append(0)
 
+    print("Locals before operand set", new_routine.local_variables, file=logfile)
     # Now set the locals as per the operands
     decoded_opers.pop(0)
     for index, operand in enumerate(decoded_opers):
       new_routine.local_variables[index] = operand
+
+    print("Locals after operand set", new_routine.local_variables, file=logfile)
 
     print("Called with these values:", file=logfile)
     print(new_routine.local_variables, file=logfile)
@@ -1047,6 +1090,14 @@ class Memory:
   def getVariable(self, variable_number):
     if (variable_number == 0x00):
       return self.popStack()
+    if (variable_number > 0x00 and variable_number < 0x10):
+      return self.getLocalVariable(variable_number - 0x01)
+    else:
+      return self.getGlobalVariableValue(variable_number - 0x10)
+
+  def peekVariable(self, variable_number):
+    if (variable_number == 0x00):
+      return self.stack[-1]
     if (variable_number > 0x00 and variable_number < 0x10):
       return self.getLocalVariable(variable_number - 0x01)
     else:
@@ -1084,7 +1135,7 @@ class Memory:
     print("Setting global variable", file=logfile)
     # Split value into two bytes
     top_byte, bottom_byte = self.breakWord(value)
-    top_addr = self.global_table_start + (variable_number * 2)
+    top_addr = self.getGlobalVariableAddr(variable_number)
     self.mem[top_addr] = top_byte
     self.mem[top_addr + 1] = bottom_byte
     print("Top byte:", file=logfile)
@@ -1108,10 +1159,6 @@ class Memory:
   # Some are small!
   def getSmallNumber(self, addr):
     return self.mem[addr]
-
-  # Decode Z-Text starting at given address
-  def decodeZText(self, addr):
-    pass
 
   # Read an instruction (probably at PC)
   # Bit complicated due to versioning...
@@ -1190,13 +1237,10 @@ class Memory:
         branch_offset = branch_byte & 0b00111111
       else:
         branch_byte_two = self.getSmallNumber(next_byte)
-        print("branch bytes:", hex(branch_byte), hex(branch_byte_two), file=logfile)
-        print("branch bytes:", bin(branch_byte), bin(branch_byte_two), file=logfile)
+        # Annoying 15-bit sign conversion
         val = ((branch_byte & 0b00011111) << 8) + branch_byte_two
         if ((branch_byte & 0b00100000) == 0b00100000):
-          val = -(0b10000000000000 - val)
-#          val = -(val+1)
-#        val = getSignedEquivalent((branch_byte & 0b00111111) << 8) + branch_byte_two
+          val = -(0x2000 - val)
         branch_offset = val
         next_byte += 1
 
@@ -1265,15 +1309,18 @@ class Memory:
     return attrib_bit & full_flags == attrib_bit
 
   def setAttribute(self, obj_number, attrib_number, value):
+    print("setAttribute", obj_number, attrib_number, value, file=logfile)
     obj_addr = self.getObjectAddress(obj_number)
     full_flags = (self.getNumber(obj_addr) << 16) + self.getNumber(obj_addr+2)
+    print(bin(full_flags), file=logfile)
     if (value):
       attrib_bit = 0x80000000 >> attrib_number
       full_flags |= attrib_bit
     else:
       attrib_bit = 0xffffffff
-      attrib_bit -= 0x80000000 >> attrib_number
+      attrib_bit -= (0x80000000 >> attrib_number)
       full_flags &= attrib_bit
+    print(bin(full_flags), file=logfile)
     word_1 = full_flags >> 16
     word_2 = full_flags & 0x0000ffff
     byte_1, byte_2 = self.breakWord(word_1)
@@ -1362,18 +1409,18 @@ class Memory:
 
   def getProperty(self, obj_number, prop_number):
     prop_addr = self.getPropertyAddress(obj_number, prop_number)
-    prop_start_addr = prop_addr + 1
     if (prop_addr == 0): # No property found
       return self.getPropertyDefault(prop_number)
-    size_byte = self.getSmallNumber(prop_addr)
-    cur_prop_number = 0b00011111 & size_byte
-    prop_bytes = ((size_byte - cur_prop_number) >> 5) + 1
+    prop_bytes = self.getPropertySize(prop_addr)
+    prop_start_addr = prop_addr + 1
     if (prop_bytes == 2):
-      print("getProperty: return word: prop num:", prop_number, "val:", self.getNumber(prop_start_addr), file=logfile)
+      print("getProperty: return word: prop num:", prop_number, "val:", hex(self.getNumber(prop_start_addr)), file=logfile)
       return self.getNumber(prop_start_addr)
     elif (prop_bytes == 1):
-      print("getProperty: return byte: prop num:", prop_number, "val:", self.getNumber(prop_start_addr), file=logfile)
+      print("getProperty: return byte: prop num:", prop_number, "val:", hex(self.getNumber(prop_start_addr)), file=logfile)
       return self.getSmallNumber(prop_start_addr)
+    else:
+      raise Exception("Illegal property access")
 
   def getPropertyTableAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
@@ -1405,14 +1452,10 @@ class Memory:
     while (size_byte != 0):
       cur_prop_number = 0b00011111 & size_byte
       if (prop_number == cur_prop_number):
-        print("Prop addr: found prop at:", size_byte_addr, file=logfile)
+        print("Prop addr: found prop at:", hex(size_byte_addr), file=logfile)
         return size_byte_addr
       # Get the next property
-      # size_byte = ((num_bytes - 1) << 5) + prop_num
-      prop_bytes = size_byte - cur_prop_number
-      prop_bytes = prop_bytes >> 5
-      prop_bytes += 1
-#      prop_bytes = ((size_byte - (cur_prop_number-1)) >> 5) + 1
+      prop_bytes = self.getPropertySize(size_byte_addr)
       size_byte_addr += prop_bytes + 1 # move past size byte + prop bytes
       size_byte = self.getSmallNumber(size_byte_addr)
     return 0
@@ -1427,8 +1470,8 @@ class Memory:
   def setProperty(self, obj_number, prop_number, value):
     prop_address = self.getPropertyAddress(obj_number, prop_number)
     prop_bytes = self.getPropertySize(prop_address)
-    top_byte = (value & 0xff00) >> 8
-    bottom_byte = value & 0x00ff
+    top_byte, bottom_byte = self.breakWord(value)
+    print("set prop", obj_number, prop_number, hex(prop_address), top_byte, bottom_byte, file=logfile)
     if (prop_bytes == 2):
       self.mem[prop_address + 1] = top_byte
       self.mem[prop_address + 2] = bottom_byte
@@ -1513,84 +1556,84 @@ class Memory:
     print("getOpcode", file=logfile)
     print("last five bits: " + hex(byte & 0b00011111), file=logfile)
     print("last four bits: " + hex(byte & 0b00001111), file=logfile)
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 1):
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1):
       return "je"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x2):
+      return "jl"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x3):
+      return "jg"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x4):
       return "dec_chk"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
       return "inc_chk"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
+      return "jin"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x7):
       return "test"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
-      return "test_attr"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 13):
-      return "store"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 15):
-      return "loadw"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x10):
-      return "loadb"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 20):
-      return "add"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
       return "and"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
-      return "div"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 21):
-      return "sub"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
-      return "mul"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
-      return "insert_obj"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
+      return "test_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xb):
       return "set_attr"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xc):
       return "clear_attr"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x3):
-      return "jg"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x2):
-      return "jl"
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
-      return "jin"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xd):
+      return "store"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
+      return "insert_obj"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xf):
+      return "loadw"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x10):
+      return "loadb"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
       return "get_prop"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x12):
       return "get_prop_addr"
-    if (operand_type == Operand.OneOP and byte & 0b00011111 == 0x9):
-      return "remove_obj"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
-      return "jump"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0):
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x14):
+      return "add"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x15):
+      return "sub"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
+      return "mul"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
+      return "div"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
       return "jz"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 1):
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
       return "get_sibling"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 2):
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x2):
       return "get_child"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 3):
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x3):
       return "get_parent"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xA):
-      return "print_obj"
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
-      return "ret"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x4):
       return "get_prop_len"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
       return "inc"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
       return "print_addr"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x9):
+      return "remove_obj"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 12):
+      return "jump"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xA):
+      return "print_obj"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 11):
+      return "ret"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xd):
       return "print_paddr"
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0):
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
       return "rtrue"
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 1):
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
       return "rfalse"
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 2):
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x2):
       return "print"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
+      return "print_ret"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
       return "ret_popped"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
-      return "print_ret"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
