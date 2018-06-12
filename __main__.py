@@ -10,7 +10,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","loadw","loadb", "get_prop_addr", "get_prop_len", "random"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -61,6 +61,8 @@ class Instruction:
       main_memory.mul(self)
     elif (self.opcode == 'and'):
       main_memory.and_1(self)
+    elif (self.opcode == 'or'):
+      main_memory.or_1(self)
     elif (self.opcode == 'je'):
       main_memory.je(self)
     elif (self.opcode == 'inc_chk'):
@@ -69,6 +71,8 @@ class Instruction:
       main_memory.dec_chk(self)
     elif (self.opcode == 'inc'):
       main_memory.inc(self)
+    elif (self.opcode == 'dec'):
+      main_memory.dec(self)
     elif (self.opcode == 'get_parent'):
       main_memory.get_parent(self)
     elif (self.opcode == 'get_child'):
@@ -89,6 +93,8 @@ class Instruction:
       main_memory.rtrue(self)
     elif (self.opcode == 'rfalse'):
       main_memory.rfalse(self)
+    elif (self.opcode == 'load'):
+      main_memory.load(self)
     elif (self.opcode == 'loadw'):
       main_memory.loadw(self)
     elif (self.opcode == 'loadb'):
@@ -99,6 +105,8 @@ class Instruction:
       main_memory.storeb(self)
     elif (self.opcode == 'store'):
       main_memory.store(self)
+    elif (self.opcode == 'get_next_prop'):
+      main_memory.get_next_prop(self)
     elif (self.opcode == 'get_prop_addr'):
       main_memory.get_prop_addr(self)
     elif (self.opcode == 'get_prop_len'):
@@ -149,6 +157,8 @@ class Instruction:
       main_memory.sub(self)
     elif (self.opcode == 'div'):
       main_memory.div(self)
+    elif (self.opcode == 'mod'):
+      main_memory.mod(self)
     elif (self.opcode == 'random'):
       main_memory.random(self)
     else:
@@ -607,6 +617,16 @@ class Memory:
     self.setVariableInPlace(variable_num, value)
     self.pc += instruction.instr_length
 
+  def dec(self, instruction):
+    print("dec", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    variable_num = decoded_opers[0]
+    value = getSignedEquivalent(self.peekVariable(variable_num))
+    value -= 1
+    value = getHexValue(value)
+    self.setVariableInPlace(variable_num, value)
+    self.pc += instruction.instr_length
+
   def new_line(self, instruction):
     print("newline", file=logfile)
     print('')
@@ -784,9 +804,21 @@ class Memory:
     prop_number = decoded_opers[1]
     print("Obj number: " + str(obj_number), file=logfile)
     print("Prop number: " + str(prop_number), file=logfile)
-    # Prop addresss without size byte
+    # Prop address without size byte
     prop_addr = self.getPropertyAddress(obj_number, prop_number) + 1
-    self.setVariable(instruction.store_variable, prop_addr+1)
+    self.setVariable(instruction.store_variable, prop_addr)
+    self.pc += instruction.instr_length # Move past the instr
+
+  def get_next_prop(self, instruction):
+    print("get_next_prop", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    obj_number = decoded_opers[0]
+    prop_number = decoded_opers[1]
+    print("Obj number: " + str(obj_number), file=logfile)
+    print("Prop number: " + str(prop_number), file=logfile)
+    # Prop addresss without size byte
+    next_prop_num = self.getNextProperty(obj_number, prop_number)
+    self.setVariable(instruction.store_variable, next_prop_num)
     self.pc += instruction.instr_length # Move past the instr
 
   def get_prop_len(self, instruction):
@@ -797,7 +829,7 @@ class Memory:
     print("Prop addr: " + hex(prop_addr), file=logfile)
     prop_bytes = 0
     if prop_addr != 0:
-      prop_bytes = self.getPropertySize(prop_addr-1)
+      prop_bytes = self.getPropertySize(prop_addr)
     self.setVariable(instruction.store_variable, prop_bytes)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -870,6 +902,22 @@ class Memory:
 
     # DEBUG: Validate
     if (self.peekVariable(target_var) != value):
+      raise Exception("Error storing value")
+
+    self.pc += instruction.instr_length # Move past the instr
+
+  def load(self, instruction):
+    print("load", file=logfile)
+    decoded_opers  = self.decodeOperands(instruction)
+    loading_var = decoded_opers[0]
+    # Don't pop stack if 0x00!
+    value_to_load = self.peekVariable(target_var)
+
+    print("loading_var: " + hex(loading_var), file=logfile)
+    self.setVariable(instruction.store_variable, value_to_load)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != value):
       raise Exception("Error storing value")
 
     self.pc += instruction.instr_length # Move past the instr
@@ -970,7 +1018,7 @@ class Memory:
 
     # DEBUG: Validate
     if (self.peekVariable(instruction.store_variable) != val):
-      raise Exception("Error loading value")
+      raise Exception("Error MULing values")
 
     self.pc += instruction.instr_length
 
@@ -984,7 +1032,21 @@ class Memory:
 
     # DEBUG: Validate
     if (self.peekVariable(instruction.store_variable) != decoded_opers[0] & decoded_opers[1]):
-      raise Exception("Error loading value")
+      raise Exception("Error ANDing values")
+
+    self.pc += instruction.instr_length
+
+  def or_1(self, instruction):
+    print("or_1", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    print(decoded_opers, file=logfile)
+    ored = decoded_opers[0] | decoded_opers[1]
+    print("Or'd value:", ored, file=logfile)
+    self.setVariable(instruction.store_variable, ored)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != decoded_opers[0] | decoded_opers[1]):
+      raise Exception("Error ORing values")
 
     self.pc += instruction.instr_length
 
@@ -1007,6 +1069,19 @@ class Memory:
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
     val = decoded_opers[0] // decoded_opers[1]
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
+
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
+    self.pc += instruction.instr_length
+
+  def mod(self, instruction):
+    print("mod", file=logfile)
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    val = decoded_opers[0] % decoded_opers[1]
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
 
@@ -1467,6 +1542,17 @@ class Memory:
     prop_list_start = prop_table_address + (short_name_length*2) + 1
     return prop_list_start
 
+  def getNextProperty(self, obj_number, prop_number):
+    if (prop_number != 0):
+      cur_prop_addr = self.getPropertyAddress(obj_number, prop_number)
+      next_prop_addr = cur_prop_addr + 1 + self.getPropertySize(cur_prop_addr)
+      next_prop_number = 0b00011111 & next_prop_addr
+      return next_prop_number
+    else:
+      first_prop_addr = self.getPropertyListAddress(obj_number)
+      first_prop_number = 0b00011111 & first_prop_addr
+      return first_prop_number
+
   def getPropertyAddress(self, obj_number, prop_number):
     if (self.version < 4):
       return self.getPropertyAddressV1(obj_number, prop_number)
@@ -1603,6 +1689,8 @@ class Memory:
       return "jin"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x7):
       return "test"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x8):
+      return "or"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
       return "and"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
@@ -1623,6 +1711,8 @@ class Memory:
       return "get_prop"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x12):
       return "get_prop_addr"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x13):
+      return "get_next_prop"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x14):
       return "add"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x15):
@@ -1631,6 +1721,8 @@ class Memory:
       return "mul"
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
       return "div"
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x18):
+      return "mod"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
       return "jz"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
@@ -1643,6 +1735,8 @@ class Memory:
       return "get_prop_len"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
       return "inc"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x6):
+      return "dec"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
       return "print_addr"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x9):
@@ -1655,6 +1749,8 @@ class Memory:
       return "jump"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xd):
       return "print_paddr"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xe):
+      return "load"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
       return "rtrue"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
