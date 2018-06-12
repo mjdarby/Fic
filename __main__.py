@@ -93,6 +93,8 @@ class Instruction:
       main_memory.rtrue(self)
     elif (self.opcode == 'rfalse'):
       main_memory.rfalse(self)
+    elif (self.opcode == 'quit'):
+      main_memory.quit(self)
     elif (self.opcode == 'load'):
       main_memory.load(self)
     elif (self.opcode == 'loadw'):
@@ -911,13 +913,13 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     loading_var = decoded_opers[0]
     # Don't pop stack if 0x00!
-    value_to_load = self.peekVariable(target_var)
+    value_to_load = self.peekVariable(loading_var)
 
     print("loading_var: " + hex(loading_var), file=logfile)
     self.setVariable(instruction.store_variable, value_to_load)
 
     # DEBUG: Validate
-    if (self.peekVariable(instruction.store_variable) != value):
+    if (self.peekVariable(instruction.store_variable) != value_to_load):
       raise Exception("Error storing value")
 
     self.pc += instruction.instr_length # Move past the instr
@@ -1157,6 +1159,10 @@ class Memory:
     print(self.routine_callstack, file=logfile)
 
     new_routine.print_debug()
+
+  def quit(self, instruction):
+    print("quit", file=logfile)
+    quit()
 
   def decodeOperands(self, instruction):
     oper_zip = zip(instruction.operand_types, instruction.operands)
@@ -1546,11 +1552,11 @@ class Memory:
     if (prop_number != 0):
       cur_prop_addr = self.getPropertyAddress(obj_number, prop_number)
       next_prop_addr = cur_prop_addr + 1 + self.getPropertySize(cur_prop_addr)
-      next_prop_number = 0b00011111 & next_prop_addr
+      next_prop_number = 0b00011111 & self.getSmallNumber(next_prop_addr)
       return next_prop_number
     else:
       first_prop_addr = self.getPropertyListAddress(obj_number)
-      first_prop_number = 0b00011111 & first_prop_addr
+      first_prop_number = 0b00011111 & self.getSmallNumber(first_prop_addr)
       return first_prop_number
 
   def getPropertyAddress(self, obj_number, prop_number):
@@ -1558,7 +1564,6 @@ class Memory:
       return self.getPropertyAddressV1(obj_number, prop_number)
     else:
       return self.getPropertyAddressV4(obj_number, prop_number)
-
 
   def getPropertyAddressV1(self, obj_number, prop_number):
     prop_list_address = self.getPropertyListAddress(obj_number)
@@ -1761,6 +1766,8 @@ class Memory:
       return "print_ret"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
       return "ret_popped"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xa):
+      return "quit"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
     if (operand_type == Operand.VAR and byte == 224):
