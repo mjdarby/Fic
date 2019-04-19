@@ -26,11 +26,13 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Calling routines - Setting initial values - Done
 - Calling routines - Managing the routine call-stack - Done
 
-## Opcodes to do
+## Opcodes to do for Zork 1 (v3) to work
 - RESTORE
 - SAVE
 - VERIFY
-- Likely many more
+
+## Other opcodes
+- Many
 
 ## Maybes
 - Rename 'getNumber' to 'getWord'?
