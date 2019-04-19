@@ -151,6 +151,8 @@ class Instruction:
       main_memory.get_prop(self)
     elif (self.opcode == 'new_line'):
       main_memory.new_line(self)
+    elif (self.opcode == 'restart'):
+      main_memory.restart(self)
     elif (self.opcode == 'test_attr'):
       main_memory.test_attr(self)
     elif (self.opcode == 'test'):
@@ -213,6 +215,7 @@ def getHexValue(num):
 # Memory - broken up into dynamic/high/static
 class Memory:
   def __init__(self, memory_print):
+    self.raw = memory_print
     self.mem = bytearray(memory_print)
     self.dynamic = 0
     self.static = self.mem[0x0e]
@@ -477,6 +480,12 @@ class Memory:
     print(target_character, end='')
 
   # opcodes
+  def restart(self, instruction):
+    print("restart", file=logfile)
+    # Wipe it all.
+    self.__init__(self.raw)
+    self.readDictionary()
+
   def read(self, instruction):
     print("read", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
@@ -1770,6 +1779,8 @@ class Memory:
       return "quit"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
+      return "restart"
     if (operand_type == Operand.VAR and byte == 224):
       if (self.version > 3):
         return "call_vs"
