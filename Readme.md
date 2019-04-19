@@ -26,22 +26,11 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Calling routines - Setting initial values - Done
 - Calling routines - Managing the routine call-stack - Done
 
-## Opcodes
-- Factor out the argument decoding - Done
-- DEC
-- DIV
-- GET_NEXT_PROP
-- LOAD
-- MOD
-- OR
-- RANDOM
-- READ
-
-- QUIT
-- RESTART
+## Opcodes to do
 - RESTORE
 - SAVE
 - VERIFY
+- Likely many more
 
 ## Maybes
 - Rename 'getNumber' to 'getWord'?

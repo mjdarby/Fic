@@ -816,7 +816,9 @@ class Memory:
     print("Obj number: " + str(obj_number), file=logfile)
     print("Prop number: " + str(prop_number), file=logfile)
     # Prop address without size byte
-    prop_addr = self.getPropertyAddress(obj_number, prop_number) + 1
+    prop_addr = self.getPropertyAddress(obj_number, prop_number)
+    if (prop_addr != 0):  # We found one
+      prop_addr = prop_addr + 1 # Offset for size byte
     self.setVariable(instruction.store_variable, prop_addr)
     self.pc += instruction.instr_length # Move past the instr
 
