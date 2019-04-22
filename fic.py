@@ -1,5 +1,6 @@
 import sys
 import random
+import time
 from enum import Enum
 
 # Enums
@@ -223,10 +224,10 @@ class Memory:
     self.version = self.mem[0x00]
     self.routine_offset = self.mem[0x28]
     self.string_offset = self.mem[0x2a]
-    self.global_table_start = self.getNumber(0x0c)
-    self.object_table_start = self.getNumber(0x0a)
-    self.abbreviation_table_start = self.getNumber(0x18)
-    self.dictionary_table_start = self.getNumber(0x08)
+    self.global_table_start = self.getWord(0x0c)
+    self.object_table_start = self.getWord(0x0a)
+    self.abbreviation_table_start = self.getWord(0x18)
+    self.dictionary_table_start = self.getWord(0x08)
     self.stack = []
     self.routine_callstack = []
     self.current_alphabet = Alphabet.A0
@@ -256,12 +257,12 @@ class Memory:
     byte += 1
 
     # How many entries?
-    num_entries = self.getNumber(dict_addr + byte)
+    num_entries = self.getWord(dict_addr + byte)
     byte += 2
 
     # Load 'em up!
     for i in range(num_entries):
-      word_1, word_2 = self.getNumber(dict_addr + byte), self.getNumber(dict_addr + byte + 2)
+      word_1, word_2 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2)
       self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
       byte += entry_size
 
@@ -361,7 +362,7 @@ class Memory:
   # print
   def getEncodedAbbreviationString(self, idx):
     abbrev_addr = self.abbreviation_table_start + (idx*2)
-    abbrev_addr = self.getNumber(abbrev_addr)*2
+    abbrev_addr = self.getWord(abbrev_addr)*2
     return self.getEncodedTextLiteral(abbrev_addr)[0]
 
   def print_string(self, string):
@@ -944,7 +945,7 @@ class Memory:
     print("Idx: " + hex(idx), file=logfile)
     print("Target addr: ", hex(base_addr + (2*idx)), file=logfile)
     print("Store target: " + hex(instruction.store_variable), file=logfile)
-    word = self.getNumber(base_addr + (2*idx))
+    word = self.getWord(base_addr + (2*idx))
     self.setVariable(instruction.store_variable, word)
 
     # DEBUG: Validate
@@ -985,7 +986,7 @@ class Memory:
     self.mem[base_addr + (2*idx) + 1] = bottom_byte
 
     # DEBUG: Validate
-    if (self.getNumber(base_addr + (2*idx)) != value):
+    if (self.getWord(base_addr + (2*idx)) != value):
       raise Exception("Error storing word")
 
     self.pc += instruction.instr_length # Move past the instr
@@ -1112,7 +1113,11 @@ class Memory:
       random_val = random.randint(1, val)
       self.setVariable(instruction.store_variable, random_val)
     else:
-      # TODO - Seed generator with negative value or 0
+      if val == 0:
+        # Do the standard seeding...
+        random.seed(time.time())
+      else:
+        random.seed(val)
       self.setVariable(instruction.store_variable, 0)
     self.pc += instruction.instr_length
 
@@ -1142,7 +1147,7 @@ class Memory:
     # Newer versions use zero instead
     for i in range(local_var_count):
       if (self.version < 5):
-        variable_value = self.getNumber(routine_address + 1 + (2*i))
+        variable_value = self.getWord(routine_address + 1 + (2*i))
         new_routine.local_variables.append(variable_value)
       else:
         new_routine.local_variables.append(0)
@@ -1244,7 +1249,7 @@ class Memory:
     return self.global_table_start + (variable_number * 2)
 
   def getGlobalVariableValue(self, variable_number):
-    return self.getNumber(self.getGlobalVariableAddr(variable_number))
+    return self.getWord(self.getGlobalVariableAddr(variable_number))
 
   def setGlobalVariable(self, variable_number, value):
     print("Setting global variable", file=logfile)
@@ -1262,13 +1267,13 @@ class Memory:
   def getFirstAddress(self):
     print("getFirstAddress", file=logfile)
     if (self.version != 6):
-      self.pc = self.getNumber(0x06)
+      self.pc = self.getWord(0x06)
     else:
-      self.pc = self.unpackAddress(self.getNumber(0x06), True)
+      self.pc = self.unpackAddress(self.getWord(0x06), True)
     print(self.pc, file=logfile)
 
   # Most numbers are stored as two adjacent bytes
-  def getNumber(self, addr):
+  def getWord(self, addr):
     return (self.mem[addr] << 8) + self.mem[addr+1]
 
   # Some are small!
@@ -1328,7 +1333,7 @@ class Memory:
       # Now get that many operands...
       for operand_type in operand_types:
         if (operand_type == OperandType.Large):
-          operands.append(self.getNumber(next_byte))
+          operands.append(self.getWord(next_byte))
           next_byte += 2
         if (operand_type == OperandType.Small):
           operands.append(self.getSmallNumber(next_byte))
@@ -1377,13 +1382,13 @@ class Memory:
                        instr_length)
 
   def getEncodedTextLiteral(self, next_byte):
-    chars = self.getNumber(next_byte)
+    chars = self.getWord(next_byte)
     text_literal = []
     # First two-byte set with the first bit set to '0' is the end of the stream
     while ((chars & 0x8000) != 0x8000):
       text_literal.append(chars)
       next_byte += 2
-      chars = self.getNumber(next_byte)
+      chars = self.getWord(next_byte)
     text_literal.append(chars)
     next_byte += 2
     return (text_literal, next_byte)
@@ -1393,8 +1398,8 @@ class Memory:
     # Need to offset
     start_addr = self.object_table_start
     prop_addr = self.object_table_start + ((prop_number-1) * 2)
-    print("getPropertyDefault: return word: prop num:", prop_number, "val:", self.getNumber(prop_addr), file=logfile)
-    prop_default = self.getNumber(prop_addr)
+    print("getPropertyDefault: return word: prop num:", prop_number, "val:", self.getWord(prop_addr), file=logfile)
+    prop_default = self.getWord(prop_addr)
     return prop_default
 
   def getObjSize(self):
@@ -1418,15 +1423,15 @@ class Memory:
   def isAttributeSet(self, obj_number, attrib_number):
     obj_addr = self.getObjectAddress(obj_number)
     attrib_bit = 0x80000000 >> (attrib_number)
-    first_two_attribute_bytes = self.getNumber(obj_addr)
-    last_two_attribute_bytes = self.getNumber(obj_addr+2)
+    first_two_attribute_bytes = self.getWord(obj_addr)
+    last_two_attribute_bytes = self.getWord(obj_addr+2)
     full_flags = (first_two_attribute_bytes << 16) + last_two_attribute_bytes
     return (attrib_bit & full_flags) == attrib_bit
 
   def setAttribute(self, obj_number, attrib_number, value):
     print("setAttribute", obj_number, attrib_number, value, file=logfile)
     obj_addr = self.getObjectAddress(obj_number)
-    full_flags = (self.getNumber(obj_addr) << 16) + self.getNumber(obj_addr+2)
+    full_flags = (self.getWord(obj_addr) << 16) + self.getWord(obj_addr+2)
     print(bin(full_flags), file=logfile)
     if (value):
       print("Setting", attrib_number, "on", obj_number, "to True", file=logfile)
@@ -1482,19 +1487,19 @@ class Memory:
   def getObjectParent(self, obj_number):
     parent_addr = self.getObjectParentAddress(obj_number)
     if (self.version > 3):
-      return self.getNumber(parent_addr)
+      return self.getWord(parent_addr)
     return self.getSmallNumber(parent_addr)
 
   def getObjectSibling(self, obj_number):
     sibling_addr = self.getObjectSiblingAddress(obj_number)
     if (self.version > 3):
-      return self.getNumber(sibling_addr)
+      return self.getWord(sibling_addr)
     return self.getSmallNumber(sibling_addr)
 
   def getObjectChild(self, obj_number):
     child_addr = self.getObjectChildAddress(obj_number)
     if (self.version > 3):
-      return self.getNumber(child_addr)
+      return self.getWord(child_addr)
     return self.getSmallNumber(child_addr)
 
   def setObjectParent(self, obj_number, parent):
@@ -1536,10 +1541,10 @@ class Memory:
     prop_bytes = self.getPropertySize(prop_addr)
     prop_start_addr = prop_addr + 1
     if (prop_bytes == 2):
-      print("getProperty: return word: prop num:", prop_number, "val:", hex(self.getNumber(prop_start_addr)), file=logfile)
-      return self.getNumber(prop_start_addr)
+      print("getProperty: return word: prop num:", prop_number, "val:", hex(self.getWord(prop_start_addr)), file=logfile)
+      return self.getWord(prop_start_addr)
     elif (prop_bytes == 1):
-      print("getProperty: return byte: prop num:", prop_number, "val:", hex(self.getNumber(prop_start_addr)), file=logfile)
+      print("getProperty: return byte: prop num:", prop_number, "val:", hex(self.getWord(prop_start_addr)), file=logfile)
       return self.getSmallNumber(prop_start_addr)
     else:
       raise Exception("Illegal property access")
@@ -1550,7 +1555,7 @@ class Memory:
     prop_table_offset = 7
     if (self.version > 3):
       prop_table_offset = 9
-    prop_table_address = self.getNumber(obj_addr + prop_table_offset)
+    prop_table_address = self.getWord(obj_addr + prop_table_offset)
     return prop_table_address
 
   def getPropertyListAddress(self, obj_number):

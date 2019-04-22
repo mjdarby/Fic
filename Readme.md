@@ -6,25 +6,31 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Reading story file
 - Writing save files
 
-## Architecture
-- PC - Done
-- Stack - Done
-- Global variables - Done
-- Local variables - Done
-- Hardware interaction
-- Memory map - Done
-- R_O - Done
-- R_S - Done
+## Architecture / Done
+- PC
+- Stack
+- Global variables
+- Local variables
+- Memory map
+- R_O
+- R_S
+- ZSCII
+- Reading instructions
+- Executing instructions
+- Decode packed addresses
+- Calling routines - Setting initial values
+- Calling routines - Managing the routine call-stack
+
+## Architecture / To Do
+- Screen model
+  - Setting screen dimensions
+  - Split screen support
+- Input/output streams
+- Sound effects
 - Random number generator
   - Seeding
   - Predictable
   - True random
-- ZSCII - Done?
-- Reading instructions - Done
-- Executing instructions - Done
-- Decode packed addresses - Done
-- Calling routines - Setting initial values - Done
-- Calling routines - Managing the routine call-stack - Done
 
 ## Opcodes implemented
 - add
@@ -91,22 +97,23 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 
 ## Opcodes remaining for v1
 - pop
+- nop
 
 ## Opcodes remaining for v3 in general
 - show_status
 - restore
 - save
 - verify
-- split_window
-- set_window
+- split_window (can delay implementation by disabling upper window)
+- set_window (can delay implementation by disabling upper window)
 - output_stream
 - input_stream
 - not (1OP)
+- sound_effect (probably)
 
 ## Opcodes remaining for v4
 - call_2s
 - call_1s
-- call_1n
 - save (v4)
 - restore (v5)
 - NOT call_vs (replaces call from v1)
@@ -114,6 +121,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - call_vs2
 - erase_window
 - erase_line
+- get_cursor
 - set_cursor
 - set_text_style
 - buffer_mode
@@ -170,71 +178,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - print_form
 - make_menu
 - picture_table
-
-## Other opcodes to implement
-- aread
-- art_shift
-- buffer_mode
-- call_1n
-- call_1s
-- call_2n
-- call_2s
-- call_vn
-- call_vn2
-- call_vs
-- call_vs2
-- catch
-- check\_arg_count
-- check_unicode
-- copy_table
-- draw_picture
-- encode_text
-- erase_line
-- erase_picture
-- erase_window
-- get_cursor
-- get\_wind_prop
-- input_stream
-- log_shift
-- make_menu
-- mouse_window
-- move_window
-- nop
-- not
-- output_stream
-- picture_data
-- picture_table
-- piracy
-- pop
-- pop_stack
-- print_form
-- print_table
-- print_unicode
-- push_stack
-- put\_wind_prop
-- read_char
-- read_mouse
-- restore_undo
-- save_undo
-- scan_table
-- scroll_window
-- set_colour
-- set_cursor
-- set_font
-- set_margins
-- set\_text_style
-- set_window
-- show_status
-- sound_effect
-- split_window
-- sread - time/routine
-- throw
-- tokenise
-- window_size
-- window_style
-
-## Maybes
-- Rename 'getNumber' to 'getWord'?
 
 ## Known issues
 - Negative number storage - currently do not correctly convert to negative form
