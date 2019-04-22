@@ -1,6 +1,7 @@
 import sys
 import random
 import time
+import textwrap
 from enum import Enum
 
 # Enums
@@ -213,15 +214,24 @@ def getHexValue(num):
     num = 0x10000 + num
   return num
 
+def isNthBitSet(byte, bit):
+  return  (byte & (1 << bit)) == (1 << bit)
+
+def setNthBit(byte, bit, val):
+  if val:
+    return (byte | (1 << bit))
+  else:
+    return (byte & ~(1 << bit))
+
 # Memory - broken up into dynamic/high/static
 class Memory:
   def __init__(self, memory_print):
     self.raw = memory_print
     self.mem = bytearray(memory_print)
+    self.version = self.mem[0x00]
     self.dynamic = 0
     self.static = self.mem[0x0e]
     self.high = self.mem[0x04]
-    self.version = self.mem[0x00]
     self.routine_offset = self.mem[0x28]
     self.string_offset = self.mem[0x2a]
     self.global_table_start = self.getWord(0x0c)
@@ -236,10 +246,56 @@ class Memory:
     self.ten_bit_zscii_bytes = None
     self.word_separators = []
     self.dictionary_mapping = dict()
+    self.timedGame = False
+    self.textBuffer = ""
     self.getFirstAddress()
+    self.setFlags()
+    self.setWidthHeight(80, 20)
+    self.setInterpreterNumberVersion(6, ord('I'))
     print(self.version, file=logfile)
     print(self.static, file=logfile)
     print(self.high, file=logfile)
+
+  def setWidthHeight(self, width, height):
+    self.mem[0x20] = height
+    self.mem[0x21] = width
+
+  def setInterpreterNumberVersion(self, number, version):
+    self.mem[0x1e] = number
+    self.mem[0x1f] = version
+
+  def setFlags(self):
+    # Set interpreter capabilities in flags 1/2
+    # Flags 1 - general availability + score/time game flag
+    flags = self.mem[0x01]
+    print("starting flags: " + bin(flags), file=logfile)
+    if self.version < 4:
+      # Bit 1: Score/Time Game
+      # Bit 2: Story file split across discs (don't care)
+      # Bit 4: Status line not available? (0 = Available, 1 = Not Available)
+      # Bit 5: Screen split available? (0 = Not available, 1 = Available)
+      # Bit 6: Variable width is default? (0 = Not default, 1 = Default)
+      self.timedGame = isNthBitSet(flags, 1)
+      flags = setNthBit(flags, 4, True) # No status line
+      flags = setNthBit(flags, 5, False) # No split screen
+      flags = setNthBit(flags, 6, True) # Fixed width by default
+      self.mem[0x01] = flags
+      print("flags set: " + bin(self.mem[0x01]), file=logfile)
+    else:
+      pass # TODO, version 4+
+
+    # Flags 2 - specific availability/current status
+    # Bit 0: Set when transcripting is enabled (don't care during initialisation)
+    # Bit 1: Game requests fixed-pitch printing
+    # Bit 2: Interpreter sets to request screen redraw (don't care during initialisation)
+    # Bit 3: Game wants to use pictures
+    # Bit 4: Game wants to use UNDO opcodes
+    # Bit 5: Game wants to use a mouse
+    # Bit 6: Game wants to use colours
+    # Bit 8: Game wants to use sounds
+    # Bit 6: Game wants to use menus
+    flags = self.mem[0x10]
+    # TODO: When we reach v5+ we need to start doing something with this
 
   # read dictionary
   def readDictionary(self):
@@ -378,7 +434,8 @@ class Memory:
 
   def printZCharacterV1(self, key):
     # Handle shift characters
-    print(key, end=' ')
+#    print(key, end=' ')
+    self.printToStream(key, '')
     if key == 2:
       if (self.current_alphabet == Alphabet.A0):
         self.current_alphabet = Alphabet.A1
@@ -452,7 +509,8 @@ class Memory:
 
     # Print other characters
     if key == 0:
-      print(" ", end='')
+#      print(" ", end='')
+      self.printToStream(" ", '')
     alphabet = a0
     if current_alphabet == Alphabet.A1:
       alphabet = a1
@@ -464,12 +522,14 @@ class Memory:
       self.ten_bit_zscii_bytes_needed = 2
       self.ten_bit_zscii_bytes = 0
     elif key in alphabet:
-      print(alphabet[key], end='')
+#      print(alphabet[key], end='')
+      self.printToStream(alphabet[key], '')
 
     return Alphabet.A0
 
   def print_number(self, number):
-    print(number, end='')
+#    print(number, end='')
+    self.printToStream(str(number), '')
 
   def getZsciiCharacter(self, idx):
     table = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
@@ -478,7 +538,8 @@ class Memory:
 
   def print_zscii_character(self, character):
     target_character = self.getZsciiCharacter(character)
-    print(target_character, end='')
+    self.printToStream(target_character, '')
+#    print(target_character, end='')
 
   # opcodes
   def restart(self, instruction):
@@ -489,6 +550,9 @@ class Memory:
 
   def read(self, instruction):
     print("read", file=logfile)
+    # Flush the buffer - seems like a good time for it?
+    self.flushStream()
+
     decoded_opers  = self.decodeOperands(instruction)
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
@@ -641,7 +705,8 @@ class Memory:
 
   def new_line(self, instruction):
     print("newline", file=logfile)
-    print('')
+    #print('')
+    self.printToStream('\n', '')
     self.pc += instruction.instr_length
 
   def print_1(self, instruction):
@@ -652,6 +717,7 @@ class Memory:
   def print_ret(self, instruction):
     print("print_ret", file=logfile)
     self.print_string(instruction.encoded_string_literal)
+    self.printToStream('\n', '') # Weirdly specific to print_ret
     self.rtrue(None)
 
   def print_addr(self, instruction):
@@ -1789,10 +1855,7 @@ class Memory:
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
       return "restart"
     if (operand_type == Operand.VAR and byte == 224):
-      if (self.version > 3):
-        return "call_vs"
-      else:
-        return "call"
+        return "call" # This is renamed call_vs in >v3, but it's functionally identical
     if (operand_type == Operand.VAR and byte == 230):
       return "print_num"
     if (operand_type == Operand.VAR and byte == 231):
@@ -1815,7 +1878,8 @@ class Memory:
 
   def getExtendedOpcode(self, byte):
     print("ExtendedOpcode", file=logfile)
-    pass
+    # Do something..!
+    raise Exception("Missing extended opcode: " + hex(byte))
 
   def print_debug(self):
     print("-------------", file=logfile)
@@ -1825,6 +1889,24 @@ class Memory:
       print("Current routine state:", file=logfile)
       print(self.routine_callstack[-1].print_debug(), file=logfile)
     print("-------------", file=logfile)
+
+  def printToStream(self, string, end):
+    self.textBuffer += string + end
+
+  def flushStream(self):
+    toPrint = self.textBuffer
+#    print(textwrap.fill(toPrint))
+#    print(textwrap.wrap(toPrint, 80))
+#    print(toPrint)
+#    print("\n".join(textwrap.wrap(toPrint, 100, replace_whitespace=False, break_long_words=False)))
+
+    lines = toPrint.split("\n")
+    for i, line in enumerate(lines):
+      if i != len(lines) - 1:
+        print(textwrap.fill(line, 90))
+      else:
+        print(textwrap.fill(line, 90), end='')
+    self.textBuffer = ""
 
 def needsStoreVariable(opcode, version):
   return opcode in NeedStoreVariable

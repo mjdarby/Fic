@@ -100,16 +100,16 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - nop
 
 ## Opcodes remaining for v3 in general
-- show_status
-- restore
 - save
+- restore
 - verify
-- split_window (can delay implementation by disabling upper window)
-- set_window (can delay implementation by disabling upper window)
-- output_stream
+- output_stream (seem to be used more for debug commands)
 - input_stream
 - not (1OP)
 - sound_effect (probably)
+- show_status (think we can delay this by setting flags 1)
+- split_window (can delay implementation by disabling upper window in flags 1)
+- set_window (can delay implementation by disabling upper window in flags 1)
 
 ## Opcodes remaining for v4
 - call_2s
