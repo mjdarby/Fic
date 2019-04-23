@@ -2,6 +2,7 @@ import sys
 import random
 import time
 import textwrap
+import re
 from enum import Enum
 
 # Enums
@@ -11,7 +12,7 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test", "verify"]
 NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load"]
 NeedTextLiteral = ["print","print_ret"]
 
@@ -21,7 +22,7 @@ a0 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,
 a1 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
               ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y', 'Z']))
 a2 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
-              [' ','\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')']))
+              ['`','\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')']))
 
 input_map = dict(zip(['`','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y', 'z', '\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')'],
                      [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]))
@@ -91,6 +92,8 @@ class Instruction:
       main_memory.ret(self)
     elif (self.opcode == 'ret_popped'):
       main_memory.ret_popped(self)
+    elif (self.opcode == 'verify'):
+      main_memory.verify(self)
     elif (self.opcode == 'rtrue'):
       main_memory.rtrue(self)
     elif (self.opcode == 'rfalse'):
@@ -385,17 +388,25 @@ class Memory:
     characters_left = 3
     # Sanitise...
     string = string.lower()
-    # Add a ` before the non-alpha characters
-    for key in a2:
-      string = string.replace(a2[key], '`' + a2[key])
-
-    # Pad to a full 3 bytes
-    while (len(string) % 3 != 0) or (len(string) < min_length):
-      string += '`'
-
+    # Add `a before the non-alpha characters (A2 switch, 10 character ZSCII)
+    # else commands like $ve won't work
+    string = re.sub(r'([^0-9a-z])', r'`a\1', string)
+    bit_string = ''
     for character in string:
+      if character in input_map:
+        bit_string += format(self.getFiveBitEncoding(character), '05b')
+      else:
+        bit_string += format(ord(character), '010b')
+    byte_list = [bit_string[i:i+5] for i in range(0, len(bit_string), 5)]
+
+    # Ensure we generate two words by padding if necessary...
+    # But not too much padding!
+    while len(byte_list) < 4 or (len(byte_list) % 3 != 0):
+      byte_list.append('00101') # 5
+
+    for character in byte_list:
       characters_left -= 1
-      encoding = self.getFiveBitEncoding(character)
+      encoding = int(character, 2)
       cur_zbyte += (encoding << (5 * characters_left))
       if (characters_left == 0):
         zbyte_1 = (cur_zbyte & 0xff00) >> 8
@@ -755,6 +766,24 @@ class Memory:
     obj_num = decoded_opers[0]
     self.print_string(self.getEncodedObjectShortName(obj_num))
     self.pc += instruction.instr_length
+
+  def verify(self, instruction):
+    # Do the checksum: sum all bytes from 0x40 onwards and compare to header value
+    file_length = self.getWord(0x1a)
+    if self.version < 4:
+      file_length *= 2
+    elif self.version < 6:
+      file_length *= 4
+    else:
+      file_length *= 8
+    # Use the original file...
+    sumMem = bytearray(self.raw)
+    sumMem = sumMem[0x40:file_length]
+    totalSum = sum(sumMem) % 0x10000
+    checkSum = self.getWord(0x1c)
+
+    self.pc += instruction.instr_length # Move past the instr regardless
+    self.handleJumpDestination(totalSum == checkSum, instruction)
 
   def ret(self, instruction):
     # Return value in parameter
@@ -1852,6 +1881,8 @@ class Memory:
       return "quit"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
+      return "verify"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
       return "restart"
     if (operand_type == Operand.VAR and byte == 224):

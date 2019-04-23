@@ -89,11 +89,11 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - sub
 - test
 - test_attr
+- verify
 
 ## Opcodes remaining for Zork 1 (v3) to work
 - restore
 - save
-- verify
 
 ## Opcodes remaining for v1
 - pop
@@ -102,7 +102,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 ## Opcodes remaining for v3 in general
 - save
 - restore
-- verify
 - output_stream (seem to be used more for debug commands)
 - input_stream
 - not (1OP)
