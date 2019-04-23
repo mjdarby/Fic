@@ -3,6 +3,8 @@ import random
 import time
 import textwrap
 import re
+import colorama
+import os
 from enum import Enum
 
 # Enums
@@ -562,12 +564,14 @@ class Memory:
   def read(self, instruction):
     print("read", file=logfile)
     # Flush the buffer - seems like a good time for it?
-    self.flushStream()
+#    self.flushStream()
+    self.drawWindows()
 
     decoded_opers  = self.decodeOperands(instruction)
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
     string = input()
+    self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
     self.parseString(string, parse_buffer_address, text_buffer_address)
     self.pc += instruction.instr_length
@@ -1926,11 +1930,6 @@ class Memory:
 
   def flushStream(self):
     toPrint = self.textBuffer
-#    print(textwrap.fill(toPrint))
-#    print(textwrap.wrap(toPrint, 80))
-#    print(toPrint)
-#    print("\n".join(textwrap.wrap(toPrint, 100, replace_whitespace=False, break_long_words=False)))
-
     lines = toPrint.split("\n")
     for i, line in enumerate(lines):
       if i != len(lines) - 1:
@@ -1938,6 +1937,48 @@ class Memory:
       else:
         print(textwrap.fill(line, 90), end='')
     self.textBuffer = ""
+
+  def getLowerWindowLines(self):
+    columns, rows = os.get_terminal_size()
+    # BUG: On terminal resize, the already written text will
+    # end up being resized. This approach won't scale.
+    toPrint = self.textBuffer
+    lines = toPrint.split("\n")
+    retLines = []
+    for i, line in enumerate(lines):
+      retLines.append(textwrap.fill(line, columns - 2))
+    return retLines
+
+  def tidyBuffer(self):
+    lines = self.getLowerWindowLines()
+    columns, rows = os.get_terminal_size()
+    if len(lines) > rows:
+      lines = lines[len(lines) - rows:]
+    self.textBuffer = "\n".join(lines)
+
+  def drawWindows(self):
+    # Get current terminal size
+    columns, rows = os.get_terminal_size()
+
+    print('\x1b[2J')
+
+
+    # Print the buffer
+    lowerLines = self.getLowerWindowLines()
+
+    # Move the cursor back up to the top left of the buffer
+    top_row = max(rows - len(lowerLines), 1)
+    pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
+    print("%s" % (pos(top_row,1)))
+
+    for i, line in enumerate(lowerLines):
+      if i != len(lowerLines) - 1:
+        print(line)
+      else:
+        print(line, end='')
+
+    # Tidy buffer - ie. drop lines that have gone off the top
+    self.tidyBuffer()
 
 def needsStoreVariable(opcode, version):
   return opcode in NeedStoreVariable
@@ -1959,6 +2000,8 @@ def getOperandTypeFromBytes(byte):
 def main():
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
   main_memory.readDictionary()
+
+  colorama.init()
 
   # If this is Z-Machine 6, we don't have a 'first instruction',
   # but a 'main routine' instead. So create a call instruction
