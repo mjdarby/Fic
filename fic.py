@@ -5,6 +5,8 @@ import textwrap
 import re
 import colorama
 import os
+import ctypes
+import struct
 from enum import Enum
 
 # Enums
@@ -1960,8 +1962,11 @@ class Memory:
     # Get current terminal size
     columns, rows = os.get_terminal_size()
 
+    # Clear screen
     print('\x1b[2J')
 
+    # Tidy buffer - ie. drop lines that have gone off the top
+    self.tidyBuffer()
 
     # Print the buffer
     lowerLines = self.getLowerWindowLines()
@@ -1969,7 +1974,7 @@ class Memory:
     # Move the cursor back up to the top left of the buffer
     top_row = max(rows - len(lowerLines), 1)
     pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
-    print("%s" % (pos(top_row,1)))
+    print("%s" % (pos(top_row-1,1)))
 
     for i, line in enumerate(lowerLines):
       if i != len(lowerLines) - 1:
@@ -1977,8 +1982,34 @@ class Memory:
       else:
         print(line, end='')
 
-    # Tidy buffer - ie. drop lines that have gone off the top
-    self.tidyBuffer()
+    self.drawStatusLine()
+
+    # TODO: There seems to be an off-by-one error hiding in
+    # the draw as the console keeps getting longer over time
+
+  def getCurrentCursorPosition(self):
+    # Irritating... This will be platform specific (ANSI vs. Windows...)
+    # TODO: Linux...
+
+    # TODO: Understand this code, which was ripped from SO
+    hstd = ctypes.windll.kernel32.GetStdHandle(-11)
+    csbi = ctypes.create_string_buffer(22)
+    res = ctypes.windll.kernel32.GetConsoleScreenBufferInfo(hstd, csbi)
+    width, height, curx, cury, wattr, left, top, right, bottom, maxx, maxy = struct.unpack("hhhhHhhhhhh", csbi.raw)
+    return cury - top, curx
+
+  def drawStatusLine(self):
+    # Get current terminal size
+    columns, rows = os.get_terminal_size()
+    cursorY, cursorX = self.getCurrentCursorPosition()
+
+    # Move to top...
+    pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
+    print("%s" % (pos(1,1)), end='')
+    print(colorama.Back.WHITE + ' ' * columns, end='')
+    print(colorama.Style.RESET_ALL, end='')
+    # And reset the cursor.
+    print("%s" % (pos(cursorY+1, cursorX+1)), end='')
 
 def needsStoreVariable(opcode, version):
   return opcode in NeedStoreVariable
