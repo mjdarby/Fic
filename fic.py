@@ -1,3 +1,4 @@
+import readchar
 import sys
 import random
 import time
@@ -33,8 +34,8 @@ input_map = dict(zip(['`','a','b','c','d','e','f','g','h','i','j','k','l','m','n
 
 
 # Logging
-tracefile = open('trace.txt', 'w')
-logfile = open('full_log.txt', 'w')
+tracefile = open('trace.txt', 'w', buffering=1)
+logfile = open('full_log.txt', 'w', buffering=1)
 
 # Instruction
 class Instruction:
@@ -60,6 +61,7 @@ class Instruction:
 
   def run(self, main_memory):
     print("Running opcode: " + str(self.opcode), file=tracefile)
+
     if (self.opcode == 'call'):
       main_memory.call(self)
     elif (self.opcode == 'add'):
@@ -96,6 +98,8 @@ class Instruction:
       main_memory.ret(self)
     elif (self.opcode == 'ret_popped'):
       main_memory.ret_popped(self)
+    elif (self.opcode == 'show_status'):
+      main_memory.show_status(self)
     elif (self.opcode == 'verify'):
       main_memory.verify(self)
     elif (self.opcode == 'rtrue'):
@@ -259,6 +263,8 @@ class Memory:
     self.setFlags()
     self.setWidthHeight(80, 20)
     self.setInterpreterNumberVersion(6, ord('I'))
+    self.stream = ""
+    self.printMode = True # Eventually an enum
     print(self.version, file=logfile)
     print(self.static, file=logfile)
     print(self.high, file=logfile)
@@ -395,6 +401,7 @@ class Memory:
     # Add `a before the non-alpha characters (A2 switch, 10 character ZSCII)
     # else commands like $ve won't work
     string = re.sub(r'([^0-9a-z])', r'`a\1', string)
+    print(string)
     bit_string = ''
     for character in string:
       if character in input_map:
@@ -524,7 +531,6 @@ class Memory:
 
     # Print other characters
     if key == 0:
-#      print(" ", end='')
       self.printToStream(" ", '')
     alphabet = a0
     if current_alphabet == Alphabet.A1:
@@ -537,13 +543,11 @@ class Memory:
       self.ten_bit_zscii_bytes_needed = 2
       self.ten_bit_zscii_bytes = 0
     elif key in alphabet:
-#      print(alphabet[key], end='')
       self.printToStream(alphabet[key], '')
 
     return Alphabet.A0
 
   def print_number(self, number):
-#    print(number, end='')
     self.printToStream(str(number), '')
 
   def getZsciiCharacter(self, idx):
@@ -572,7 +576,21 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
+
     string = input()
+
+    # # I'm a coder, console input is easy
+    # string = ""
+    # while True:
+    #   char = readchar.readchar()
+    #   if (ord(char) > 128):
+    #     continue
+    #   string += char.decode("utf-8")
+    #   if char.decode("utf-8") == '\r':
+    #     break
+    #   else:
+    #     print(string, end='')
+
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
     self.parseString(string, parse_buffer_address, text_buffer_address)
@@ -607,7 +625,6 @@ class Memory:
     variable_to_pull_to = decoded_opers[0]
     stack_val = self.getVariable(0)
     self.setVariableInPlace(variable_to_pull_to, stack_val)
-#    self.setVariable(variable_to_pull_to, stack_val)
     self.pc += instruction.instr_length
 
   def insert_obj(self, instruction):
@@ -773,6 +790,11 @@ class Memory:
     self.print_string(self.getEncodedObjectShortName(obj_num))
     self.pc += instruction.instr_length
 
+  def show_status(self, instruction):
+    self.drawStatusLine()
+
+    self.pc += instruction.instr_length # Move past the instr regardless
+
   def verify(self, instruction):
     # Do the checksum: sum all bytes from 0x40 onwards and compare to header value
     file_length = self.getWord(0x1a)
@@ -931,7 +953,7 @@ class Memory:
     prop_number = decoded_opers[1]
     print("Obj number: " + str(obj_number), file=logfile)
     print("Prop number: " + str(prop_number), file=logfile)
-    # Prop addresss without size byte
+
     next_prop_num = self.getNextProperty(obj_number, prop_number)
     self.setVariable(instruction.store_variable, next_prop_num)
     self.pc += instruction.instr_length # Move past the instr
@@ -940,11 +962,12 @@ class Memory:
     print("get_prop_len", file=logfile)
     decoded_opers  = self.decodeOperands(instruction)
     # This is the address immediately after the size byte, so minus one
-    prop_addr = decoded_opers[0] - 1
-    print("Prop addr: " + hex(prop_addr), file=logfile)
     prop_bytes = 0
-    if prop_addr != 0:
-      prop_bytes = self.getPropertySize(prop_addr)
+    if decoded_opers[0] != 0: # Prop 0 must return zero...
+      prop_addr = decoded_opers[0] - 1
+      print("Prop addr: " + hex(prop_addr), file=logfile)
+      if prop_addr != 0:
+        prop_bytes = self.getPropertySize(prop_addr)
     self.setVariable(instruction.store_variable, prop_bytes)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -1887,6 +1910,8 @@ class Memory:
       return "quit"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
       return "new_line"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xc):
+      return "show_status"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
       return "verify"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
@@ -1928,7 +1953,10 @@ class Memory:
     print("-------------", file=logfile)
 
   def printToStream(self, string, end):
-    self.textBuffer += string + end
+    if self.printMode:
+      self.textBuffer += string + end
+    else:
+      self.stream += string + end
 
   def flushStream(self):
     toPrint = self.textBuffer
@@ -1955,15 +1983,16 @@ class Memory:
     lines = self.getLowerWindowLines()
     columns, rows = os.get_terminal_size()
     if len(lines) > rows:
-      lines = lines[len(lines) - rows:]
+      lines = lines[len(lines) - rows + 1:]
     self.textBuffer = "\n".join(lines)
 
   def drawWindows(self):
     # Get current terminal size
     columns, rows = os.get_terminal_size()
+    drawString = ""
 
     # Clear screen
-    print('\x1b[2J')
+    drawString += '\x1b[2J'
 
     # Tidy buffer - ie. drop lines that have gone off the top
     self.tidyBuffer()
@@ -1974,15 +2003,18 @@ class Memory:
     # Move the cursor back up to the top left of the buffer
     top_row = max(rows - len(lowerLines), 1)
     pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
-    print("%s" % (pos(top_row-1,1)))
+    drawString += "%s" % (pos(top_row,1))
 
     for i, line in enumerate(lowerLines):
       if i != len(lowerLines) - 1:
-        print(line)
+        drawString += line + '\n'
       else:
-        print(line, end='')
+        drawString += line
 
-    self.drawStatusLine()
+    print(drawString, end ='')
+
+    if self.version < 4:
+      self.drawStatusLine()
 
     # TODO: There seems to be an off-by-one error hiding in
     # the draw as the console keeps getting longer over time
@@ -2003,10 +2035,37 @@ class Memory:
     columns, rows = os.get_terminal_size()
     cursorY, cursorX = self.getCurrentCursorPosition()
 
+    # Room name...
+    # Use the rubbish print workaround that we have to fix eventually
+    self.stream = ""
+    self.printMode = False
+    self.print_string(self.getEncodedObjectShortName(self.getGlobalVariableValue(0)))
+    roomName = " " + self.stream
+    self.printMode = True
+
+    roomNameLength = len(roomName)
+
+    scoreTimeString = ""
+    if self.timedGame:
+      hour = self.getGlobalVariableValue(1)
+      minute = self.getGlobalVariableValue(2)
+      scoreTimeString = "Time: {:02d}:{:02d}".format(hour, minute)
+    else:
+      score = self.getGlobalVariableValue(1)
+      turns = self.getGlobalVariableValue(2)
+      scoreTimeString = "Score: {0: >3}  Turns: {1: >4}".format(score, turns)
+
+    margin = 8
+    printScoreStringAt = columns - margin - len(scoreTimeString)
+    spaceBetweenRoomNameAndScoreString = printScoreStringAt - roomNameLength
+
     # Move to top...
     pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
     print("%s" % (pos(1,1)), end='')
-    print(colorama.Back.WHITE + ' ' * columns, end='')
+    print(colorama.Fore.BLACK + colorama.Back.WHITE + roomName, end='')
+    print(" " * spaceBetweenRoomNameAndScoreString, end='')
+    print(scoreTimeString, end='')
+    print(" " * margin, end='')
     print(colorama.Style.RESET_ALL, end='')
     # And reset the cursor.
     print("%s" % (pos(cursorY+1, cursorX+1)), end='')
