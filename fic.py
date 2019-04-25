@@ -48,7 +48,8 @@ class Instruction:
                branch_offset,
                text_to_print,
                encoded_string_literal,
-               instr_length):
+               instr_length,
+               first_opcode_byte):
     self.opcode = opcode
     self.operand_types = operand_types
     self.operands = operands
@@ -58,9 +59,10 @@ class Instruction:
     self.text_to_print = text_to_print
     self.encoded_string_literal = encoded_string_literal
     self.instr_length = instr_length
+    self.my_byte = first_opcode_byte
 
   def run(self, main_memory):
-    print("Running opcode: " + str(self.opcode), file=tracefile)
+    print("Running opcode: " + str(self.my_byte) + " " + str(self.opcode), file=tracefile)
 
     if (self.opcode == 'call'):
       main_memory.call(self)
@@ -791,11 +793,13 @@ class Memory:
     self.pc += instruction.instr_length
 
   def show_status(self, instruction):
+    print("show_status", file=logfile)
     self.drawStatusLine()
 
     self.pc += instruction.instr_length # Move past the instr regardless
 
   def verify(self, instruction):
+    print("verify", file=logfile)
     # Do the checksum: sum all bytes from 0x40 onwards and compare to header value
     file_length = self.getWord(0x1a)
     if self.version < 4:
@@ -963,7 +967,7 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     # This is the address immediately after the size byte, so minus one
     prop_bytes = 0
-    if decoded_opers[0] != 0: # Prop 0 must return zero...
+    if decoded_opers[0] != 0: # get_prop_len 0 must return zero...
       prop_addr = decoded_opers[0] - 1
       print("Prop addr: " + hex(prop_addr), file=logfile)
       if prop_addr != 0:
@@ -1503,7 +1507,8 @@ class Memory:
                        branch_offset,
                        text_to_print,
                        text_literal,
-                       instr_length)
+                       instr_length,
+                       first_opcode_byte)
 
   def getEncodedTextLiteral(self, next_byte):
     chars = self.getWord(next_byte)
