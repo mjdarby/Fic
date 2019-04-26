@@ -690,7 +690,7 @@ class Memory:
     printLog("remove_obj")
     decoded_opers  = self.decodeOperands(instruction)
     obj_num = decoded_opers[0]
-    printLog("remove_obj:obj to orphan: " + obj_num)
+    printLog("remove_obj:obj to orphan: ", obj_num)
 
     self.removeObject(obj_num)
     self.pc += instruction.instr_length
