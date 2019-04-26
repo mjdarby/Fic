@@ -18,7 +18,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test", "verify"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
