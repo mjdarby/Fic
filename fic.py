@@ -2059,7 +2059,11 @@ class Memory:
   def drawStatusLine(self):
     # Get current terminal size
     columns, rows = os.get_terminal_size()
-    cursorY, cursorX = self.getCurrentCursorPosition()
+
+    if os.name != "posix":
+      cursorY, cursorX = self.getCurrentCursorPosition()
+    else:
+      print('\033[s', end='')
 
     # Room name...
     # Use the rubbish print workaround that we have to fix eventually
@@ -2094,7 +2098,10 @@ class Memory:
     print(" " * margin, end='')
     print(colorama.Style.RESET_ALL, end='')
     # And reset the cursor.
-    print("%s" % (pos(cursorY+1, cursorX+1)), end='')
+    if os.name != "posix":
+      print("%s" % (pos(cursorY+1, cursorX+1)), end='')
+    else:
+      print('\033[u', end='')
 
 def needsStoreVariable(opcode, version):
   return opcode in NeedStoreVariable

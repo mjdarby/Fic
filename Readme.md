@@ -83,6 +83,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - rfalse
 - rtrue
 - set_attr
+- show_status
 - store
 - storeb
 - storew
@@ -91,7 +92,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - test_attr
 - verify
 
-## Opcodes remaining for Zork 1 (v3) to work
+## Opcodes remaining for Zork 1 / Seastalker (v3) to work
 - restore
 - save
 
@@ -106,7 +107,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - input_stream
 - not (1OP)
 - sound_effect (probably)
-- show_status (think we can delay this by setting flags 1)
 - split_window (can delay implementation by disabling upper window in flags 1)
 - set_window (can delay implementation by disabling upper window in flags 1)
 
