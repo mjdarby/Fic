@@ -804,7 +804,7 @@ class Memory:
 
   def show_status(self, instruction):
     printLog("show_status")
-#    self.drawStatusLine()
+    self.drawStatusLine()
 
     self.pc += instruction.instr_length # Move past the instr regardless
 
@@ -2040,8 +2040,7 @@ class Memory:
     print(drawString, end ='')
 
     if self.version < 4:
-      pass
-#      self.drawStatusLine()
+      self.drawStatusLine()
 
     # TODO: There seems to be an off-by-one error hiding in
     # the draw as the console keeps getting longer over time
