@@ -41,9 +41,9 @@ logfile = open('full_log.txt', 'w', buffering=1)
 TRACEPRINT = False
 LOGPRINT = False
 
-def printTrace(*string):
+def printTrace(*string, end=''):
   if TRACEPRINT:
-    print(string, file=tracefile)
+    print(string, end=end, file=tracefile)
 
 def printLog(*string):
   if LOGPRINT:
@@ -74,7 +74,7 @@ class Instruction:
     self.my_byte = first_opcode_byte
 
   def run(self, main_memory):
-    printTrace("Running opcode: " + str(self.my_byte) + " " + str(self.opcode))
+    printTrace("Running opcode: " + str(self.my_byte) + " " + str(self.opcode), end="\n")
 
     if (self.opcode == 'call'):
       main_memory.call(self)
@@ -425,10 +425,20 @@ class Memory:
     characters_left = 3
     # Sanitise...
     string = string.lower()
+    printLog("String to tokenise:", string)
+
     # Add `a before the non-alpha characters
-    # ie. (A2 switch, 10 character ZSCII)
+    for key in a2:
+      string = string.replace(a2[key], '`' + a2[key])
+    # For 10-bit ascii, you have to do A2 switch + `
     # else commands like $ve won't work
-    string = re.sub(r'([^0-9a-z, ])', r'`a\1', string)
+    for key in input_map:
+      if key in a0.values() or key in a1.values() or key in a2.values():
+        continue
+      string = string.replace(key, '`a' + key)
+
+    printLog("String post-replacements:", string)
+
     bit_string = ''
     for character in string:
       if character in input_map:
