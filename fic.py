@@ -1,3 +1,4 @@
+import pickle
 import readchar
 import sys
 import random
@@ -17,8 +18,8 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","test_attr","test", "verify"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -107,10 +108,18 @@ class Instruction:
       main_memory.jg(self)
     elif (self.opcode == 'jl'):
       main_memory.jl(self)
+    elif (self.opcode == 'nop'):
+      main_memory.nop(self)
+    elif (self.opcode == 'save'):
+      main_memory.save(self)
+    elif (self.opcode == 'restore'):
+      main_memory.restore(self)
     elif (self.opcode == 'ret'):
       main_memory.ret(self)
     elif (self.opcode == 'ret_popped'):
       main_memory.ret_popped(self)
+    elif (self.opcode == 'pop'):
+      main_memory.pop(self)
     elif (self.opcode == 'show_status'):
       main_memory.show_status(self)
     elif (self.opcode == 'verify'):
@@ -171,6 +180,8 @@ class Instruction:
       main_memory.clear_attr(self)
     elif (self.opcode == 'jin'):
       main_memory.jin(self)
+    elif (self.opcode == 'not'):
+      main_memory.not_1(self)
     elif (self.opcode == 'read'):
       main_memory.read(self)
     elif (self.opcode == 'get_prop'):
@@ -302,7 +313,7 @@ class Memory:
       # Bit 5: Screen split available? (0 = Not available, 1 = Available)
       # Bit 6: Variable width is default? (0 = Not default, 1 = Default)
       self.timedGame = isNthBitSet(flags, 1)
-      flags = setNthBit(flags, 4, True) # No status line
+      flags = setNthBit(flags, 4, True) # Status line
       flags = setNthBit(flags, 5, False) # No split screen
       flags = setNthBit(flags, 6, True) # Fixed width by default
       self.mem[0x01] = flags
@@ -370,6 +381,7 @@ class Memory:
       sep = self.getZsciiCharacter(idx)
       string = string.replace(sep, ' ' + sep + ' ') # Force separators to be separate tokens
     tokens = list(filter(None, string.split(' '))) # Split on space, remove empties
+    printLog("Tokens: ", tokens)
     return tokens
 
   def parseString(self, string, address, text_buffer_address):
@@ -385,9 +397,11 @@ class Memory:
       # Give addr of word in dict or 0 if not found (2 bytes)
       if key in self.dictionary_mapping:
         byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
+        printLog("Found word", key, "at", byte_1, byte_2)
         self.mem[address+2+eff_idx] = byte_1
         self.mem[address+2+eff_idx+1] = byte_2
       else:
+        printLog("Did not find word", key)
         self.mem[address+2+eff_idx] = 0
         self.mem[address+2+eff_idx+1] = 0
       # Give length of word in third byte
@@ -411,9 +425,10 @@ class Memory:
     characters_left = 3
     # Sanitise...
     string = string.lower()
-    # Add `a before the non-alpha characters (A2 switch, 10 character ZSCII)
+    # Add `a before the non-alpha characters
+    # ie. (A2 switch, 10 character ZSCII)
     # else commands like $ve won't work
-    string = re.sub(r'([^0-9a-z])', r'`a\1', string)
+    string = re.sub(r'([^0-9a-z, ])', r'`a\1', string)
     bit_string = ''
     for character in string:
       if character in input_map:
@@ -426,6 +441,8 @@ class Memory:
     # But not too much padding!
     while len(byte_list) < 4 or (len(byte_list) % 3 != 0):
       byte_list.append('00101') # 5
+
+    printLog("stringToEncode, string, bytes", string, byte_list)
 
     for character in byte_list:
       characters_left -= 1
@@ -570,7 +587,6 @@ class Memory:
   def print_zscii_character(self, character):
     target_character = self.getZsciiCharacter(character)
     self.printToStream(target_character, '')
-#    print(target_character, end='')
 
   # opcodes
   def restart(self, instruction):
@@ -582,7 +598,6 @@ class Memory:
   def read(self, instruction):
     printLog("read")
     # Flush the buffer - seems like a good time for it?
-#    self.flushStream()
     self.drawWindows()
 
     decoded_opers  = self.decodeOperands(instruction)
@@ -590,18 +605,6 @@ class Memory:
     parse_buffer_address = decoded_opers[1]
 
     string = input()
-
-    # # I'm a coder, console input is easy
-    # string = ""
-    # while True:
-    #   char = readchar.readchar()
-    #   if (ord(char) > 128):
-    #     continue
-    #   string += char.decode("utf-8")
-    #   if char.decode("utf-8") == '\r':
-    #     break
-    #   else:
-    #     print(string, end='')
 
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
@@ -829,19 +832,59 @@ class Memory:
 
   def ret(self, instruction):
     # Return value in parameter
+    printLog("ret")
     decoded_opers  = self.decodeOperands(instruction)
     self.ret_helper(instruction, decoded_opers[0])
 
+  def nop(self, instruction):
+    # No operation - do nothing
+    printLog("nop")
+
   def ret_popped(self, instruction):
     # Return bottom of stack
+    printLog("ret_popped")
     self.ret_helper(instruction, self.getVariable(0))
+
+  def save(self, instruction):
+    printLog("save")
+    # Another instruction that gets moved around...
+    if (self.version > 4):
+      raise Exception("save: Moved to EXT from version 5")
+    save_successful = self.saveGame()
+    self.pc += instruction.instr_length # Move past the instr regardless
+    # Version 1-3: Jump
+    if (self.version < 4):
+      self.handleJumpDestination(save_successful, instruction)
+    # Version 4: Store result in save
+    elif (self.version < 5):
+      self.setVariable(instruction.store_variable, save_successful)
+
+  def restore(self, instruction):
+    printLog("restore")
+    # Another instruction that gets moved around...
+    if (self.version > 4):
+      raise Exception("restore: Moved to EXT from version 5")
+    restore_successful = self.restoreGame()
+    self.pc += instruction.instr_length
+    self.handleJumpDestination(restore_successful, instruction)
+
+  def pop(self, instruction):
+    # Pop stack!
+    printLog("pop")
+    # Another instruction that gets moved around...
+    if (self.version > 4):
+      raise Exception("catch: Not implemeneted")
+    self.popStack()
+    self.pc += instruction.instr_length
 
   def rtrue(self, instruction):
     # Return true
+    printLog("rtrue")
     self.ret_helper(instruction, 1)
 
   def rfalse(self, instruction):
     # Return false
+    printLog("rfalse")
     self.ret_helper(instruction, 0)
 
   def ret_helper(self, instruction, ret_val):
@@ -850,7 +893,8 @@ class Memory:
     # Return ret_val into store variable and...
     printLog("Returning", ret_val, "into", current_routine.store_variable)
     self.setVariable(current_routine.store_variable, ret_val)
-    # ... kick execution home
+    # wipe stack and kick execution home
+    self.stack = []
     self.pc = current_routine.return_address
 
   def jin(self, instruction):
@@ -1145,6 +1189,20 @@ class Memory:
       raise Exception("Error storing word")
 
     self.pc += instruction.instr_length # Move past the instr
+
+  def not_1(self, instruction):
+    self.pc += instruction.instr_length # Move past the instr regardless
+    printLog("not")
+    decoded_opers  = self.decodeOperands(instruction)
+    value = decoded_opers[0]
+    value = ~value
+
+    self.setVariable(instruction.store_variable, not_value)
+    self.pc += instruction.instr_length # Move past the instr regardless
+
+  def call_1n(self, instruction):
+    printLog("call_1n")
+    raise Exception("call_1n: Not implemented")
 
   def add(self, instruction):
     printLog("add")
@@ -1920,6 +1978,11 @@ class Memory:
       return "print_paddr"
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xe):
       return "load"
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xf):
+      if self.version < 5:
+        return "not"
+      else:
+        return "call_1n"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
       return "rtrue"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
@@ -1928,8 +1991,18 @@ class Memory:
       return "print"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
       return "print_ret"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x4):
+      return "nop"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x5):
+      return "save"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x6):
+      return "restore"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
+      return "restart"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
       return "ret_popped"
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x9):
+      return "pop"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xa):
       return "quit"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
@@ -1938,8 +2011,6 @@ class Memory:
       return "show_status"
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
       return "verify"
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
-      return "restart"
     if (operand_type == Operand.VAR and byte == 224):
         return "call" # This is renamed call_vs in >v3, but it's functionally identical
     if (operand_type == Operand.VAR and byte == 230):
@@ -1958,6 +2029,8 @@ class Memory:
       return "push"
     if (operand_type == Operand.VAR and byte == 233):
       return "pull"
+    if (operand_type == Operand.VAR and byte == 248):
+      return "not"
     if (operand_type == Operand.VAR and byte == 228):
       return "read"
     raise Exception("Missing opcode: " + hex(byte))
@@ -1966,6 +2039,74 @@ class Memory:
     printLog("ExtendedOpcode")
     # Do something..!
     raise Exception("Missing extended opcode: " + hex(byte))
+
+  def saveGame(self):
+    print("Enter filename> ", end='')
+    # Necessary to stream print as we're out of the
+    # regular read/input loop
+    self.printToStream("Enter filename> ", '')
+    file_name = input()
+    self.printToStream(file_name, '\n')
+    file_path = os.path.abspath(file_name)
+    printLog("save: file_name: ", file_name)
+    printLog("save: file_path: ", file_path)
+
+    # TODO: Don't use pickle, it's dangerous
+    try:
+      with open(file_name, 'wb') as f:
+        pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)
+        printLog("save: self.pc", self.pc)
+        return 1
+    except FileNotFoundError:
+      pass
+
+    return 0
+
+  def restoreGame(self):
+    print("Enter filename> ", end='')
+    # Necessary to stream print as we're out of the
+    # regular read/input loop
+    self.printToStream("Enter filename> ", '')
+    file_name = input()
+    self.printToStream(file_name, '\n')
+    file_path = os.path.abspath(file_name)
+    printLog("restore: file_name: ", file_name)
+    printLog("restore: file_path: ", file_path)
+
+    try:
+      with open(file_name, 'rb') as f:
+        printLog("pre-load: self.pc", self.pc)
+        loaded_file = pickle.load(f)
+        self.raw = loaded_file.raw
+        self.mem = loaded_file.mem
+        self.version = loaded_file.mem[0x00]
+        self.dynamic = 0
+        self.static = loaded_file.mem[0x0e]
+        self.high = loaded_file.mem[0x04]
+        self.routine_offset = loaded_file.mem[0x28]
+        self.string_offset = loaded_file.mem[0x2a]
+        self.global_table_start = loaded_file.getWord(0x0c)
+        self.object_table_start = loaded_file.getWord(0x0a)
+        self.abbreviation_table_start = loaded_file.getWord(0x18)
+        self.dictionary_table_start = loaded_file.getWord(0x08)
+        self.stack = loaded_file.stack
+        self.routine_callstack = loaded_file.routine_callstack
+        self.current_alphabet = loaded_file.current_alphabet
+        self.current_abbrev = loaded_file.current_abbrev
+        self.ten_bit_zscii_bytes_needed = loaded_file.ten_bit_zscii_bytes_needed
+        self.ten_bit_zscii_bytes = loaded_file.ten_bit_zscii_bytes
+        self.word_separators = loaded_file.word_separators
+        self.dictionary_mapping = loaded_file.dictionary_mapping
+        self.timedGame = loaded_file.timedGame
+        self.stream = loaded_file.stream
+        self.printMode = loaded_file.printMode
+        self.pc = loaded_file.pc
+        printLog("post-load:  self.pc", self.pc)
+        return 1
+    except FileNotFoundError:
+      pass
+
+    return 0
 
   def print_debug(self):
     printLog("-------------")
@@ -2097,9 +2238,13 @@ class Memory:
     print("%s" % (pos(cursorY+1, cursorX+1)), end='')
 
 def needsStoreVariable(opcode, version):
+  # TODO: Sometimes the opcode changes between versions
+  #       so this function has to take that into account
   return opcode in NeedStoreVariable
 
 def needsBranchOffset(opcode, version):
+  # TODO: Sometimes the opcode changes between versions
+  #       so this function has to take that into account
   return opcode in NeedBranchOffset
 
 def needsTextLiteral(opcode, version):

@@ -62,6 +62,8 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - mod
 - mul
 - new_line
+- nop
+- not
 - or
 - print
 - print_addr
@@ -80,9 +82,13 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - restart
 - ret
 - ret_popped
+- pop
+- restore
 - rfalse
 - rtrue
+- save
 - set_attr
+- show_status
 - store
 - storeb
 - storew
@@ -91,24 +97,12 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - test_attr
 - verify
 
-## Opcodes remaining for Zork 1 (v3) to work
-- restore
-- save
-
-## Opcodes remaining for v1
-- pop
-- nop
-
 ## Opcodes remaining for v3 in general
-- save
-- restore
 - output_stream (seem to be used more for debug commands)
 - input_stream
-- not (1OP)
-- sound_effect (probably)
-- show_status (think we can delay this by setting flags 1)
-- split_window (can delay implementation by disabling upper window in flags 1)
-- set_window (can delay implementation by disabling upper window in flags 1)
+- sound_effect (for Lurking Horror only)
+- split_window (can delay implementation by disabling upper window in flags 1 - probably only Seastalker)
+- set_window (can delay implementation by disabling upper window in flags 1 - probably only Seastalker)
 
 ## Opcodes remaining for v4
 - call_2s
