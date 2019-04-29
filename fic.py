@@ -1234,8 +1234,11 @@ class Memory:
 
     printLog("Locals before operand set", new_routine.local_variables)
     # Now set the locals as per the operands
+    # Throw away 'extra' operands
     decoded_opers.pop(0)
     for index, operand in enumerate(decoded_opers):
+      if index >= len(new_routine.local_variables):
+        break
       new_routine.local_variables[index] = operand
 
     printLog("Locals after operand set", new_routine.local_variables)
