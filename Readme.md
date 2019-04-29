@@ -3,7 +3,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 
 # Usage
 - Install the Python pre-reqs as per requirements.txt
-- python fic.py <your Z-code game>
+-     python fic.py <your Z-code game>
 
 # Dones
 ## Read-write
