@@ -61,8 +61,9 @@ class Instruction:
                text_to_print,
                encoded_string_literal,
                instr_length,
+               func,
                first_opcode_byte):
-    self.opcode = opcode
+    self.opcode = opcode # Debugging
     self.operand_types = operand_types
     self.operands = operands
     self.store_variable = store_variable
@@ -71,139 +72,12 @@ class Instruction:
     self.text_to_print = text_to_print
     self.encoded_string_literal = encoded_string_literal
     self.instr_length = instr_length
+    self.func = func
     self.my_byte = first_opcode_byte
 
   def run(self, main_memory):
     printTrace("Running opcode: " + str(self.my_byte) + " " + str(self.opcode), end="\n")
-
-    if (self.opcode == 'call'):
-      main_memory.call(self)
-    elif (self.opcode == 'add'):
-      main_memory.add(self)
-    elif (self.opcode == 'mul'):
-      main_memory.mul(self)
-    elif (self.opcode == 'and'):
-      main_memory.and_1(self)
-    elif (self.opcode == 'or'):
-      main_memory.or_1(self)
-    elif (self.opcode == 'je'):
-      main_memory.je(self)
-    elif (self.opcode == 'inc_chk'):
-      main_memory.inc_chk(self)
-    elif (self.opcode == 'dec_chk'):
-      main_memory.dec_chk(self)
-    elif (self.opcode == 'inc'):
-      main_memory.inc(self)
-    elif (self.opcode == 'dec'):
-      main_memory.dec(self)
-    elif (self.opcode == 'get_parent'):
-      main_memory.get_parent(self)
-    elif (self.opcode == 'get_child'):
-      main_memory.get_child(self)
-    elif (self.opcode == 'get_sibling'):
-      main_memory.get_sibling(self)
-    elif (self.opcode == 'jz'):
-      main_memory.jz(self)
-    elif (self.opcode == 'jg'):
-      main_memory.jg(self)
-    elif (self.opcode == 'jl'):
-      main_memory.jl(self)
-    elif (self.opcode == 'nop'):
-      main_memory.nop(self)
-    elif (self.opcode == 'save'):
-      main_memory.save(self)
-    elif (self.opcode == 'restore'):
-      main_memory.restore(self)
-    elif (self.opcode == 'ret'):
-      main_memory.ret(self)
-    elif (self.opcode == 'ret_popped'):
-      main_memory.ret_popped(self)
-    elif (self.opcode == 'pop'):
-      main_memory.pop(self)
-    elif (self.opcode == 'show_status'):
-      main_memory.show_status(self)
-    elif (self.opcode == 'verify'):
-      main_memory.verify(self)
-    elif (self.opcode == 'rtrue'):
-      main_memory.rtrue(self)
-    elif (self.opcode == 'rfalse'):
-      main_memory.rfalse(self)
-    elif (self.opcode == 'quit'):
-      main_memory.quit(self)
-    elif (self.opcode == 'load'):
-      main_memory.load(self)
-    elif (self.opcode == 'loadw'):
-      main_memory.loadw(self)
-    elif (self.opcode == 'loadb'):
-      main_memory.loadb(self)
-    elif (self.opcode == 'storew'):
-      main_memory.storew(self)
-    elif (self.opcode == 'storeb'):
-      main_memory.storeb(self)
-    elif (self.opcode == 'store'):
-      main_memory.store(self)
-    elif (self.opcode == 'get_next_prop'):
-      main_memory.get_next_prop(self)
-    elif (self.opcode == 'get_prop_addr'):
-      main_memory.get_prop_addr(self)
-    elif (self.opcode == 'get_prop_len'):
-      main_memory.get_prop_len(self)
-    elif (self.opcode == 'put_prop'):
-      main_memory.put_prop(self)
-    elif (self.opcode == 'jump'):
-      main_memory.jump(self)
-    elif (self.opcode == 'insert_obj'):
-      main_memory.insert_obj(self)
-    elif (self.opcode == 'remove_obj'):
-      main_memory.remove_obj(self)
-    elif (self.opcode == 'push'):
-      main_memory.push(self)
-    elif (self.opcode == 'pull'):
-      main_memory.pull(self)
-    elif (self.opcode == 'print'):
-      main_memory.print_1(self)
-    elif (self.opcode == 'print_ret'):
-      main_memory.print_ret(self)
-    elif (self.opcode == 'print_num'):
-      main_memory.print_num(self)
-    elif (self.opcode == 'print_char'):
-      main_memory.print_char(self)
-    elif (self.opcode == 'print_obj'):
-      main_memory.print_obj(self)
-    elif (self.opcode == 'print_addr'):
-      main_memory.print_addr(self)
-    elif (self.opcode == 'print_paddr'):
-      main_memory.print_paddr(self)
-    elif (self.opcode == 'set_attr'):
-      main_memory.set_attr(self)
-    elif (self.opcode == 'clear_attr'):
-      main_memory.clear_attr(self)
-    elif (self.opcode == 'jin'):
-      main_memory.jin(self)
-    elif (self.opcode == 'not'):
-      main_memory.not_1(self)
-    elif (self.opcode == 'read'):
-      main_memory.read(self)
-    elif (self.opcode == 'get_prop'):
-      main_memory.get_prop(self)
-    elif (self.opcode == 'new_line'):
-      main_memory.new_line(self)
-    elif (self.opcode == 'restart'):
-      main_memory.restart(self)
-    elif (self.opcode == 'test_attr'):
-      main_memory.test_attr(self)
-    elif (self.opcode == 'test'):
-      main_memory.test(self)
-    elif (self.opcode == 'sub'):
-      main_memory.sub(self)
-    elif (self.opcode == 'div'):
-      main_memory.div(self)
-    elif (self.opcode == 'mod'):
-      main_memory.mod(self)
-    elif (self.opcode == 'random'):
-      main_memory.random(self)
-    else:
-      raise Exception("Not implemented")
+    self.func(self)
 
   def print_debug(self):
     printLog("Printing instr debug")
@@ -903,8 +777,8 @@ class Memory:
     # Return ret_val into store variable and...
     printLog("Returning", ret_val, "into", current_routine.store_variable)
     self.setVariable(current_routine.store_variable, ret_val)
-    # wipe stack and kick execution home
-    self.stack = []
+    # kick execution home - stack is scope limited to the routine so no need to
+    # do anything with it.
     self.pc = current_routine.return_address
 
   def jin(self, instruction):
@@ -1505,6 +1379,7 @@ class Memory:
     store_variable = None
     branch_offset = None
     text_to_print = None
+    func = None
     operand_types = []
     if (self.version >= 5 and (first_opcode_byte == 0xbe)):
       opcode = self.getExtendedOpcode(self.mem[next_byte])
@@ -1526,7 +1401,7 @@ class Memory:
     # Figure out the operand count and type(s)
     opcount = self.getOperandCount(form, first_opcode_byte)
     if (not opcode):
-      opcode = self.getOpcode(first_opcode_byte, opcount)
+      opcode, func = self.getOpcode(first_opcode_byte, opcount)
 
     if (opcount != Operand.ZeroOP):
       if (form == Form.Extended or form == Form.Variable):
@@ -1589,6 +1464,7 @@ class Memory:
                        text_to_print,
                        text_literal,
                        instr_length,
+                       func,
                        first_opcode_byte)
 
   def getEncodedTextLiteral(self, next_byte):
@@ -1913,136 +1789,136 @@ class Memory:
     printLog("last five bits: " + hex(byte & 0b00011111))
     printLog("last four bits: " + hex(byte & 0b00001111))
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1):
-      return "je"
+      return "je", self.je
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x2):
-      return "jl"
+      return "jl", self.jl
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x3):
-      return "jg"
+      return "jg", self.jg
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x4):
-      return "dec_chk"
+      return "dec_chk", self.dec_chk
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
-      return "inc_chk"
+      return "inc_chk", self.inc_chk
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
-      return "jin"
+      return "jin", self.jin
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x7):
-      return "test"
+      return "test", self.test
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x8):
-      return "or"
+      return "or", self.or_1
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
-      return "and"
+      return "and", self.and_1
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
-      return "test_attr"
+      return "test_attr", self.test_attr
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xb):
-      return "set_attr"
+      return "set_attr", self.set_attr
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xc):
-      return "clear_attr"
+      return "clear_attr", self.clear_attr
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xd):
-      return "store"
+      return "store", self.store
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
-      return "insert_obj"
+      return "insert_obj", self.insert_obj
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xf):
-      return "loadw"
+      return "loadw", self.loadw
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x10):
-      return "loadb"
+      return "loadb", self.loadb
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
-      return "get_prop"
+      return "get_prop", self.get_prop
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x12):
-      return "get_prop_addr"
+      return "get_prop_addr", self.get_prop_addr
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x13):
-      return "get_next_prop"
+      return "get_next_prop", self.get_next_prop
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x14):
-      return "add"
+      return "add", self.add
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x15):
-      return "sub"
+      return "sub", self.sub
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
-      return "mul"
+      return "mul", self.mul
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
-      return "div"
+      return "div", self.div
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x18):
-      return "mod"
+      return "mod", self.mod
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
-      return "jz"
+      return "jz", self.jz
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
-      return "get_sibling"
+      return "get_sibling", self.get_sibling
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x2):
-      return "get_child"
+      return "get_child", self.get_child
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x3):
-      return "get_parent"
+      return "get_parent", self.get_parent
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x4):
-      return "get_prop_len"
+      return "get_prop_len", self.get_prop_len
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
-      return "inc"
+      return "inc", self.inc
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x6):
-      return "dec"
+      return "dec", self.dec
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
-      return "print_addr"
+      return "print_addr", self.print_addr
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x9):
-      return "remove_obj"
+      return "remove_obj", self.remove_obj
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xa):
-      return "print_obj"
+      return "print_obj", self.print_obj
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xb):
-      return "ret"
+      return "ret", self.ret
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xc):
-      return "jump"
+      return "jump", self.jump
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xd):
-      return "print_paddr"
+      return "print_paddr", self.print_paddr
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xe):
-      return "load"
+      return "load", self.load
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xf):
       if self.version < 5:
-        return "not"
+        return "not", self.not_1
       else:
-        return "call_1n"
+        return "call_1n", self.call_1n
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
-      return "rtrue"
+      return "rtrue", self.rtrue
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
-      return "rfalse"
+      return "rfalse", self.rfalse
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x2):
-      return "print"
+      return "print", self.print_1
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
-      return "print_ret"
+      return "print_ret", self.print_ret
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x4):
-      return "nop"
+      return "nop", self.nop
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x5):
-      return "save"
+      return "save", self.save
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x6):
-      return "restore"
+      return "restore", self.restore
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
-      return "restart"
+      return "restart", self.restart
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
-      return "ret_popped"
+      return "ret_popped", self.ret_popped
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x9):
-      return "pop"
+      return "pop", self.pop
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xa):
-      return "quit"
+      return "quit", self.quit
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
-      return "new_line"
+      return "new_line", self.new_line
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xc):
-      return "show_status"
+      return "show_status", self.show_status
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
-      return "verify"
+      return "verify", self.verify
     if (operand_type == Operand.VAR and byte == 224):
-        return "call" # This is renamed call_vs in >v3, but it's functionally identical
+        return "call", self.call
     if (operand_type == Operand.VAR and byte == 230):
-      return "print_num"
+      return "print_num", self.print_num
     if (operand_type == Operand.VAR and byte == 231):
-      return "random"
+      return "random", self.random
     if (operand_type == Operand.VAR and byte == 225):
-      return "storew"
+      return "storew", self.storew
     if (operand_type == Operand.VAR and byte == 226):
-      return "storeb"
+      return "storeb", self.storeb
     if (operand_type == Operand.VAR and byte == 227):
-      return "put_prop"
+      return "put_prop", self.put_prop
     if (operand_type == Operand.VAR and byte == 229):
-      return "print_char"
+      return "print_char", self.print_char
     if (operand_type == Operand.VAR and byte == 232):
-      return "push"
+      return "push", self.push
     if (operand_type == Operand.VAR and byte == 233):
-      return "pull"
+      return "pull", self.pull
     if (operand_type == Operand.VAR and byte == 248):
-      return "not"
+      return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
-      return "read"
+      return "read", self.read
     raise Exception("Missing opcode: " + hex(byte))
 
   def getExtendedOpcode(self, byte):
@@ -2122,6 +1998,8 @@ class Memory:
     printLog("-------------")
     printLog("Stack:")
     printLog(self.stack)
+    printLog("Routine Stack (if any):")
+    printLog(self.getStack())
     if (len(self.routine_callstack) > 0):
       printLog("Current routine state:")
       printLog(self.routine_callstack[-1].print_debug())
