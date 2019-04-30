@@ -29,6 +29,8 @@ a1 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,
               ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y', 'Z']))
 a2 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
               ['`','\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')']))
+a2_v1 = dict(zip([6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31],
+                 ['`','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','<','-',':','(', ')']))
 
 input_map = dict(zip(['`','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y', 'z', '\n','0','1','2','3','4','5','6','7','8','9','.',',','!','?','_','#','\'','"','/','\\','-',':','(', ')'],
                      [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]))
@@ -149,7 +151,7 @@ class Memory:
     self.dictionary_table_start = self.getWord(0x08)
     self.stack = []
     self.routine_callstack = []
-    self.current_alphabet = Alphabet.A0
+    self.lock_alphabets = []
     self.current_abbrev = None
     self.ten_bit_zscii_bytes_needed = None
     self.ten_bit_zscii_bytes = None
@@ -356,61 +358,107 @@ class Memory:
     abbrev_addr = self.getWord(abbrev_addr)*2
     return self.getEncodedTextLiteral(abbrev_addr)[0]
 
-  def print_string(self, string):
-    current_alphabet = Alphabet.A0
+  def print_string(self, string, starting_alphabet=Alphabet.A0):
+    # Nested strings use fresh locked alphabets for version 1/2
+    self.lock_alphabets.append(starting_alphabet)
+    current_alphabet = self.lock_alphabets[-1]
     for characters in string:
-      first_char = (characters & 0b0111110000000000) >> 10
-      second_char = (characters& 0b0000001111100000) >> 5
-      third_char = (characters & 0b0000000000011111)
-      # TODO: V1
-      current_alphabet = self.printZCharacterV3(first_char, current_alphabet)
-      current_alphabet = self.printZCharacterV3(second_char, current_alphabet)
-      current_alphabet = self.printZCharacterV3(third_char, current_alphabet)
+      first_char  = (characters & 0b0111110000000000) >> 10
+      second_char = (characters & 0b0000001111100000) >> 5
+      third_char  = (characters & 0b0000000000011111)
+      if (self.version < 3):
+        current_alphabet = self.printZCharacterV1(first_char, current_alphabet)
+        current_alphabet = self.printZCharacterV1(second_char, current_alphabet)
+        current_alphabet = self.printZCharacterV1(third_char, current_alphabet)
+      else:
+        current_alphabet = self.printZCharacterV3(first_char, current_alphabet)
+        current_alphabet = self.printZCharacterV3(second_char, current_alphabet)
+        current_alphabet = self.printZCharacterV3(third_char, current_alphabet)
 
-  def printZCharacterV1(self, key):
+    # If we ended up with an incomplete double-byte, throw it away (just in case)
+    self.ten_bit_zscii_bytes_needed = None
+    # Version 1/2: Throw away the lock alphabet we just used
+    self.lock_alphabets.pop()
+
+  def printZCharacterV1(self, key, current_alphabet):
+    # Handle ten-bit ZSCII
+    if (self.ten_bit_zscii_bytes_needed == 2):
+      self.ten_bit_zscii_bytes += key << 5
+      self.ten_bit_zscii_bytes_needed -= 1
+      return current_alphabet
+    elif (self.ten_bit_zscii_bytes_needed == 1):
+      self.ten_bit_zscii_bytes_needed -= 1
+      self.ten_bit_zscii_bytes += key
+      return current_alphabet
+    elif (self.ten_bit_zscii_bytes_needed == 0):
+      self.print_zscii_character(self.ten_bit_zscii_bytes)
+      self.ten_bit_zscii_bytes_needed = None
+
+    # Print abbreviations - we're in V2 so we can drop the complicated maths
+    if (self.current_abbrev != None):
+      abbrev_idx = key
+      self.current_abbrev = None
+      self.print_string(self.getEncodedAbbreviationString(abbrev_idx))
+      return current_alphabet
+    elif key == 1 and self.version == 2:
+      self.current_abbrev = key
+      return current_alphabet
+
     # Handle shift characters
-#    print(key, end=' ')
-    self.printToStream(key, '')
     if key == 2:
-      if (self.current_alphabet == Alphabet.A0):
-        self.current_alphabet = Alphabet.A1
-      if (self.current_alphabet == Alphabet.A1):
-        self.current_alphabet = Alphabet.A2
-      if (self.current_alphabet == Alphabet.A2):
-        self.current_alphabet = Alphabet.A0
-      return
+      if (current_alphabet == Alphabet.A0):
+        return Alphabet.A1
+      if (current_alphabet == Alphabet.A1):
+        return Alphabet.A2
+      if (current_alphabet == Alphabet.A2):
+        return Alphabet.A0
     if key == 3:
-      if (self.current_alphabet == Alphabet.A0):
-        self.current_alphabet = Alphabet.A2
-      if (self.current_alphabet == Alphabet.A2):
-        self.current_alphabet = Alphabet.A1
-      if (self.current_alphabet == Alphabet.A1):
-        self.current_alphabet = Alphabet.A0
-      return
-    # TODO: Handle shiftlock
-    if key == 4:
-      self.current_alphabet = Alphabet.A1
-      return
-    if key == 5:
-      self.current_alphabet = Alphabet.A2
-      return
+      if (current_alphabet == Alphabet.A0):
+        return Alphabet.A2
+      if (current_alphabet == Alphabet.A1):
+        return Alphabet.A0
+      if (current_alphabet == Alphabet.A2):
+        return Alphabet.A1
 
-    return
+    if key == 4:
+      if (current_alphabet == Alphabet.A0):
+        self.lock_alphabets[-1] = Alphabet.A1
+      if (current_alphabet == Alphabet.A1):
+        self.lock_alphabets[-1] = Alphabet.A2
+      if (current_alphabet == Alphabet.A2):
+        self.lock_alphabets[-1] = Alphabet.A0
+    if key == 5:
+      if (current_alphabet == Alphabet.A0):
+        self.lock_alphabets[-1] = Alphabet.A2
+      if (current_alphabet == Alphabet.A1):
+        self.lock_alphabets[-1] = Alphabet.A0
+      if (current_alphabet == Alphabet.A2):
+        self.lock_alphabets[-1] = Alphabet.A1
+
     # Handle printing
     if key == 0:
-      print(" ", end='')
-    if (self.current_alphabet == Alphabet.A0):
-      if key in a0:
-        print(a0[key], end='')
-    if (self.current_alphabet == Alphabet.A1):
-      if key in a1:
-        print(a1[key], end='')
-    if (self.current_alphabet == Alphabet.A2):
-      if key in a2:
-        print(a2[key], end='')
+      self.printToStream(" ", '')
 
-    # TODO: Handle shiftlock
-    self.current_alphabet = Alphabet.A0
+    if key == 1 and self.version == 1:
+      self.printToStream("\n", '')
+
+    alphabet = a0
+    if current_alphabet == Alphabet.A1:
+      alphabet = a1
+    elif current_alphabet == Alphabet.A2:
+      if self.version == 1:
+        alphabet = a2_v1
+      else:
+        alphabet = a2
+
+    if key == 6 and current_alphabet == Alphabet.A2:
+      # 10-bit Z-character to process
+      self.ten_bit_zscii_bytes_needed = 2
+      self.ten_bit_zscii_bytes = 0
+    elif key in alphabet:
+      self.printToStream(alphabet[key], '')
+
+    return self.lock_alphabets[-1]
 
   def printZCharacterV3(self, key, current_alphabet):
     # Handle ten-bit ZSCII
@@ -430,7 +478,7 @@ class Memory:
     if (self.current_abbrev != None):
       abbrev_idx = ((32*(self.current_abbrev-1)) + key)
       self.current_abbrev = None
-      self.print_string(self.getEncodedAbbreviationString(abbrev_idx))
+      self.print_string(self.getEncodedAbbreviationString(abbrev_idx), current_alphabet)
       return current_alphabet
     elif key in [1,2,3]:
       self.current_abbrev = key
@@ -464,8 +512,8 @@ class Memory:
     self.printToStream(str(number), '')
 
   def getZsciiCharacter(self, idx):
-    table = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
-    target_character = table[idx-0x21] # Offset by 0x21
+    table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
+    target_character = table[idx-0x20] # idx starts at 0x20 for ' ', so offset
     return target_character
 
   def print_zscii_character(self, character):
@@ -1980,7 +2028,7 @@ class Memory:
         self.dictionary_table_start = loaded_file.getWord(0x08)
         self.stack = loaded_file.stack
         self.routine_callstack = loaded_file.routine_callstack
-        self.current_alphabet = loaded_file.current_alphabet
+        self.lock_alphabets = loaded_file.lock_alphabets
         self.current_abbrev = loaded_file.current_abbrev
         self.ten_bit_zscii_bytes_needed = loaded_file.ten_bit_zscii_bytes_needed
         self.ten_bit_zscii_bytes = loaded_file.ten_bit_zscii_bytes
