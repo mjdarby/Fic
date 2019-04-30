@@ -1,7 +1,11 @@
 # What is it
-Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python.
+Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python. Currently supports most V3 Z-Code games, minus The Lurking Horror and the fancy features of Seastalker.
 
-# TODOs
+# Usage
+- Install the Python pre-reqs as per requirements.txt
+-     python fic.py <your Z-code game>
+
+# Dones
 ## Read-write
 - Reading story file
 - Writing save files
@@ -20,17 +24,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Decode packed addresses
 - Calling routines - Setting initial values
 - Calling routines - Managing the routine call-stack
-
-## Architecture / To Do
-- Screen model
-  - Setting screen dimensions
-  - Split screen support
-- Input/output streams
-- Sound effects
-- Random number generator
-  - Seeding
-  - Predictable
-  - True random
 
 ## Opcodes implemented
 - add
@@ -96,6 +89,18 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - test
 - test_attr
 - verify
+
+# TODOs
+## Architecture / To Do
+- Screen model
+  - Setting screen dimensions
+  - Split screen support
+- Input/output streams
+- Sound effects
+- Random number generator
+  - Seeding
+  - Predictable
+  - True random
 
 ## Opcodes remaining for v3 in general
 - output_stream (seem to be used more for debug commands)
@@ -171,6 +176,3 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - print_form
 - make_menu
 - picture_table
-
-## Known issues
-- Negative number storage - currently do not correctly convert to negative form
