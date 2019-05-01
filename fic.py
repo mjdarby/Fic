@@ -159,12 +159,14 @@ class Memory:
     self.dictionary_mapping = dict()
     self.timedGame = False
     self.textBuffer = ""
+    self.transcript = ""
     self.getFirstAddress()
     self.setFlags()
     self.setWidthHeight(80, 20)
     self.setInterpreterNumberVersion(6, ord('I'))
+    self.active_output_streams = [1]
+    self.command_stream = ""
     self.stream = ""
-    self.printMode = True # Eventually an enum
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -352,6 +354,15 @@ class Memory:
   def getFiveBitEncoding(self, character):
     return input_map[character]
 
+  def activatePrivateStream(self):
+    self.stored_active_streams = self.active_output_streams
+    self.active_output_streams = [5] # Our private output stream
+    self.stream = ""
+
+  def deactivatePrivateStream(self):
+    self.active_output_streams = self.stored_active_streams
+    self.stored_output_streams = None
+
   # print
   def getEncodedAbbreviationString(self, idx):
     abbrev_addr = self.abbreviation_table_start + (idx*2)
@@ -359,6 +370,13 @@ class Memory:
     return self.getEncodedTextLiteral(abbrev_addr)[0]
 
   def print_string(self, string, starting_alphabet=Alphabet.A0):
+    # We gather the full string before printing for potential buffering purposes
+    self.activatePrivateStream()
+    self._print_string(string, starting_alphabet)
+    self.deactivatePrivateStream()
+    self.printToStream(self.stream, end='')
+
+  def _print_string(self, string, starting_alphabet=Alphabet.A0):
     # Nested strings use fresh locked alphabets for version 1/2
     self.lock_alphabets.append(starting_alphabet)
     current_alphabet = self.lock_alphabets[-1]
@@ -380,6 +398,7 @@ class Memory:
     # Version 1/2: Throw away the lock alphabet we just used
     self.lock_alphabets.pop()
 
+
   def printZCharacterV1(self, key, current_alphabet):
     # Handle ten-bit ZSCII
     if (self.ten_bit_zscii_bytes_needed == 2):
@@ -398,7 +417,7 @@ class Memory:
     if (self.current_abbrev != None):
       abbrev_idx = key
       self.current_abbrev = None
-      self.print_string(self.getEncodedAbbreviationString(abbrev_idx))
+      self._print_string(self.getEncodedAbbreviationString(abbrev_idx))
       return current_alphabet
     elif key == 1 and self.version == 2:
       self.current_abbrev = key
@@ -478,7 +497,7 @@ class Memory:
     if (self.current_abbrev != None):
       abbrev_idx = ((32*(self.current_abbrev-1)) + key)
       self.current_abbrev = None
-      self.print_string(self.getEncodedAbbreviationString(abbrev_idx), current_alphabet)
+      self._print_string(self.getEncodedAbbreviationString(abbrev_idx), current_alphabet)
       return current_alphabet
     elif key in [1,2,3]:
       self.current_abbrev = key
@@ -527,6 +546,27 @@ class Memory:
     self.__init__(self.raw)
     self.readDictionary()
 
+  def handleInput(self):
+    # TODO: Support left/right/up/down arrows, copy/paste etc...
+    # You never know how good you've got it until you give it up!
+    # Maybe one day Python will release a version of input() that
+    # doesn't print the newline and we won't have to write our own
+    # implementation.
+    currentInput = ""
+    while True:
+      char = readchar.readkey() # Returns 1, 2, 3 or 4 length strings
+      if len(char) == 1 and ord(char) > 31 and ord(char) < 127:
+        currentInput += char
+        print(char, end='')
+      if len(char) == 1 and ord(char) == 8:
+        if len(currentInput) > 0:
+          currentInput = currentInput[0:-1]
+          print(char, end='')
+          print(' ', end='')
+          print(char, end='')
+      if char == '\x0d':
+        return currentInput
+
   def read(self, instruction):
     printLog("read")
     # Flush the buffer - seems like a good time for it?
@@ -536,8 +576,9 @@ class Memory:
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
 
-    string = input()
+    string = self.handleInput()
 
+    self.printToCommandStream(string, '\n')
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
     self.parseString(string, parse_buffer_address, text_buffer_address)
@@ -2036,7 +2077,7 @@ class Memory:
         self.dictionary_mapping = loaded_file.dictionary_mapping
         self.timedGame = loaded_file.timedGame
         self.stream = loaded_file.stream
-        self.printMode = loaded_file.printMode
+        self.active_output_streams = loaded_file.active_output_streams
         self.pc = loaded_file.pc
         printLog("post-load:  self.pc", self.pc)
         return 1
@@ -2058,10 +2099,25 @@ class Memory:
 
     printLog("-------------")
 
+  def printToCommandStream(self, string, end):
+    if 3 in self.active_output_streams:
+      # No printing if 3 is active
+      return
+
+    if 4 in self.active_output_streams:
+      self.command_stream += string + end
+
   def printToStream(self, string, end):
-    if self.printMode:
+    if 3 in self.active_output_streams:
+      self.z_memory_buffer += string + end
+      # No more printing if 3 is active
+      return
+
+    if 1 in self.active_output_streams:
       self.textBuffer += string + end
-    else:
+    if 2 in self.active_output_streams:
+      self.transcript += string + end
+    if 5 in self.active_output_streams:
       self.stream += string + end
 
   def flushStream(self):
@@ -2148,10 +2204,11 @@ class Memory:
     # Room name...
     # Use the rubbish print workaround that we have to fix eventually
     self.stream = ""
-    self.printMode = False
-    self.print_string(self.getEncodedObjectShortName(self.getGlobalVariableValue(0)))
+    active_streams = self.active_output_streams
+    self.active_output_streams = [5] # Our private output stream
+    self._print_string(self.getEncodedObjectShortName(self.getGlobalVariableValue(0)))
     roomName = " " + self.stream
-    self.printMode = True
+    self.active_output_streams = active_streams
 
     roomNameLength = len(roomName)
 

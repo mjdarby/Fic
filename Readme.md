@@ -1,5 +1,5 @@
 # What is it
-Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python. Currently supports most V3 Z-Code games, minus The Lurking Horror and the fancy features of Seastalker.
+Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python. Currently supports most V3 Z-Code games, minus The Lurking Horror and the fancy features of Seastalker. It might even support Z1/Z2, unless you type numbers..? I really need write test cases...
 
 # Usage
 - Install the Python pre-reqs as per requirements.txt
