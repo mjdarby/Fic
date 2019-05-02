@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import pickle
 import readchar
 import sys
@@ -44,6 +46,7 @@ TRACEPRINT = False
 LOGPRINT = False
 
 stdscr = None
+topscr = None
 
 def printTrace(*string, end=''):
   if TRACEPRINT:
@@ -1356,6 +1359,33 @@ class Memory:
     printLog("quit")
     curses.endwin()
     quit()
+
+  def splitWindow(self, rows):
+    # TODO
+    # Store the y,x co-ordinate of the cursor
+    y, x = curses.getsyx()
+
+    # Do the window split
+    if topwin is not None:
+      del topwin
+    y, x = stdwin.getmaxyx()
+    topwin = stdwin.subwin(rows, x, 0, 0)
+
+    # In version three, we clear the contents of the top window
+    if (self.version == 3):
+      topwin.clear()
+
+    # TODO
+    # Is the cursor still in the same window it was before?
+    # If not, move it to the top-left of the window
+#    if not self.targetWindow.isin(y, x):
+#      self.targetWindow.move(0,0)
+
+  def setWindow(self, window):
+    if window == 0:
+      self.targetWindow = stdwin
+    elif window == 1:
+      self.targetWindow = topwin
 
   def decodeOperands(self, instruction):
     oper_zip = zip(instruction.operand_types, instruction.operands)
