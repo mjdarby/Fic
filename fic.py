@@ -5,7 +5,6 @@ import random
 import time
 import textwrap
 import re
-import colorama
 import os
 import ctypes
 import struct
@@ -161,7 +160,7 @@ class Memory:
     self.word_separators = []
     self.dictionary_mapping = dict()
     self.timedGame = False
-    self.textBuffer = ""
+    self.bufferText = True
     self.transcript = ""
     self.getFirstAddress()
     self.setFlags()
@@ -1355,6 +1354,7 @@ class Memory:
 
   def quit(self, instruction):
     printLog("quit")
+    curses.endwin()
     quit()
 
   def decodeOperands(self, instruction):
@@ -2100,9 +2100,23 @@ class Memory:
     if (len(self.routine_callstack) > 0):
       printLog("Current routine state:")
       printLog(self.routine_callstack[-1].print_debug())
-    printLog("Mem at 0x2525:", self.mem[0x2525])
 
     printLog("-------------")
+
+  def printBufferedString(self, string):
+    # Idea: Split string into words
+    # Print each word if it won't off the end of the screen
+    # Otherwise print a newline and then print.
+
+    tokens = string.split(' ')
+    for i, token in enumerate(tokens):
+      if i != len(tokens) - 1:
+        token += " "
+      y, x = stdscr.getyx()
+      maxY, maxX = stdscr.getmaxyx()
+      if x + len(token) > maxX:
+        stdscr.addstr('\n')
+      stdscr.addstr(token)
 
   def printToCommandStream(self, string, end):
     if 3 in self.active_output_streams:
@@ -2119,57 +2133,25 @@ class Memory:
       return
 
     if 1 in self.active_output_streams:
-      stdscr.addstr(string + end)
-      self.textBuffer += string + end
+      if (self.bufferText):
+        self.printBufferedString(string + end)
+      else:
+        stdscr.addstr(string + end)
     if 2 in self.active_output_streams:
       self.transcript += string + end
     if 5 in self.active_output_streams:
       self.stream += string + end
 
-  def flushStream(self):
-    toPrint = self.textBuffer
-    lines = toPrint.split("\n")
-    for i, line in enumerate(lines):
-      if i != len(lines) - 1:
-        print(textwrap.fill(line, 90))
-      else:
-        print(textwrap.fill(line, 90), end='')
-    self.textBuffer = ""
-
-  def getLowerWindowLines(self):
-    columns, rows = os.get_terminal_size()
-    # BUG: On terminal resize, the already written text will
-    # end up being resized. This approach won't scale.
-    toPrint = self.textBuffer
-    lines = toPrint.split("\n")
-    retLines = []
-    for i, line in enumerate(lines):
-      retLines.append(textwrap.fill(line, columns - 2))
-    return retLines
-
-  def tidyBuffer(self):
-    lines = self.getLowerWindowLines()
-    columns, rows = os.get_terminal_size()
-    if len(lines) > rows:
-      lines = lines[len(lines) - rows + 1:]
-    self.textBuffer = "\n".join(lines)
-
   def drawWindows(self):
     if self.version < 4:
       self.drawStatusLine()
-
     stdscr.refresh()
 
-  def getCurrentCursorPosition(self):
-    # Irritating... This will be platform specific (ANSI vs. Windows...)
-    # TODO: Linux...
+  def getCurrentWindowCursorPosition(self):
+    return stdscr.getyx()
 
-    # TODO: Understand this code, which was ripped from SO
-    hstd = ctypes.windll.kernel32.GetStdHandle(-11)
-    csbi = ctypes.create_string_buffer(22)
-    res = ctypes.windll.kernel32.GetConsoleScreenBufferInfo(hstd, csbi)
-    width, height, curx, cury, wattr, left, top, right, bottom, maxx, maxy = struct.unpack("hhhhHhhhhhh", csbi.raw)
-    return cury - top, curx
+  def getCurrentScreenCursorPosition(self):
+    return stdscr.getsyx()
 
   def drawStatusLine(self):
     # Room name...
@@ -2229,6 +2211,7 @@ def getOperandTypeFromBytes(byte):
     return OperandType.Variable
 
 def main():
+  # Setup for screen
   global stdscr
   stdscr = curses.initscr()
   stdscr.clear()
@@ -2237,11 +2220,9 @@ def main():
   y, x = stdscr.getmaxyx()
   stdscr.move(y-1, 0)
 
-
+  # Load up the game
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
   main_memory.readDictionary()
-
-  colorama.init()
 
   # If this is Z-Machine 6, we don't have a 'first instruction',
   # but a 'main routine' instead. So create a call instruction
