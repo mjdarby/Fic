@@ -2024,11 +2024,11 @@ class Memory:
     raise Exception("Missing extended opcode: " + hex(byte))
 
   def saveGame(self):
-    print("Enter filename> ", end='')
     # Necessary to stream print as we're out of the
     # regular read/input loop
     self.printToStream("Enter filename> ", '')
-    file_name = input()
+    stdscr.refresh()
+    file_name = self.handleInput()
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
     printLog("save: file_name: ", file_name)
@@ -2046,11 +2046,9 @@ class Memory:
     return 0
 
   def restoreGame(self):
-    print("Enter filename> ", end='')
-    # Necessary to stream print as we're out of the
-    # regular read/input loop
     self.printToStream("Enter filename> ", '')
-    file_name = input()
+    stdscr.refresh()
+    file_name = self.handleInput()
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
     printLog("restore: file_name: ", file_name)
