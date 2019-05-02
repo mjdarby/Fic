@@ -9,6 +9,7 @@ import colorama
 import os
 import ctypes
 import struct
+import curses
 from enum import Enum
 
 # Enums
@@ -42,6 +43,8 @@ logfile = open('full_log.txt', 'w', buffering=1)
 
 TRACEPRINT = False
 LOGPRINT = False
+
+stdscr = None
 
 def printTrace(*string, end=''):
   if TRACEPRINT:
@@ -557,15 +560,17 @@ class Memory:
       char = readchar.readkey() # Returns 1, 2, 3 or 4 length strings
       if len(char) == 1 and ord(char) > 31 and ord(char) < 127:
         currentInput += char
-        print(char, end='')
+        stdscr.addch(char)
       if len(char) == 1 and ord(char) == 8:
         if len(currentInput) > 0:
           currentInput = currentInput[0:-1]
-          print(char, end='')
-          print(' ', end='')
-          print(char, end='')
+          stdscr.addch(char)
+          stdscr.addch(' ')
+          stdscr.addch(char)
       if char == '\x0d':
+        stdscr.addstr(chr(8)*len(currentInput)) # Nasty - overwrites what was just written with... what we're about to write
         return currentInput
+      stdscr.refresh()
 
   def read(self, instruction):
     printLog("read")
@@ -2114,6 +2119,7 @@ class Memory:
       return
 
     if 1 in self.active_output_streams:
+      stdscr.addstr(string + end)
       self.textBuffer += string + end
     if 2 in self.active_output_streams:
       self.transcript += string + end
@@ -2149,37 +2155,10 @@ class Memory:
     self.textBuffer = "\n".join(lines)
 
   def drawWindows(self):
-    # Get current terminal size
-    columns, rows = os.get_terminal_size()
-    drawString = ""
-
-    # Clear screen
-    drawString += '\x1b[2J'
-
-    # Tidy buffer - ie. drop lines that have gone off the top
-    self.tidyBuffer()
-
-    # Print the buffer
-    lowerLines = self.getLowerWindowLines()
-
-    # Move the cursor back up to the top left of the buffer
-    top_row = max(rows - len(lowerLines), 1)
-    pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
-    drawString += "%s" % (pos(top_row,1))
-
-    for i, line in enumerate(lowerLines):
-      if i != len(lowerLines) - 1:
-        drawString += line + '\n'
-      else:
-        drawString += line
-
-    print(drawString, end ='')
-
     if self.version < 4:
       self.drawStatusLine()
 
-    # TODO: There seems to be an off-by-one error hiding in
-    # the draw as the console keeps getting longer over time
+    stdscr.refresh()
 
   def getCurrentCursorPosition(self):
     # Irritating... This will be platform specific (ANSI vs. Windows...)
@@ -2193,14 +2172,6 @@ class Memory:
     return cury - top, curx
 
   def drawStatusLine(self):
-    # Get current terminal size
-    columns, rows = os.get_terminal_size()
-
-    if os.name != "posix":
-      cursorY, cursorX = self.getCurrentCursorPosition()
-    else:
-      print('\033[s', end='')
-
     # Room name...
     # Use the rubbish print workaround that we have to fix eventually
     self.stream = ""
@@ -2222,23 +2193,19 @@ class Memory:
       turns = self.getGlobalVariableValue(2)
       scoreTimeString = "Score: {0: >3}  Turns: {1: >4}".format(score, turns)
 
+    columns, rows = stdscr.getmaxyx()
     margin = 8
-    printScoreStringAt = columns - margin - len(scoreTimeString)
+    printScoreStringAt = columns - (margin - len(scoreTimeString))
     spaceBetweenRoomNameAndScoreString = printScoreStringAt - roomNameLength
 
     # Move to top...
-    pos = lambda y, x: '\x1b[%d;%dH' % (y, x)
-    print("%s" % (pos(1,1)), end='')
-    print(colorama.Fore.BLACK + colorama.Back.WHITE + roomName, end='')
-    print(" " * spaceBetweenRoomNameAndScoreString, end='')
-    print(scoreTimeString, end='')
-    print(" " * margin, end='')
-    print(colorama.Style.RESET_ALL, end='')
-    # And reset the cursor.
-    if os.name != "posix":
-      print("%s" % (pos(cursorY+1, cursorX+1)), end='')
-    else:
-      print('\033[u', end='')
+    y, x = stdscr.getyx()
+    string = roomName
+    string += " " * spaceBetweenRoomNameAndScoreString
+    string += scoreTimeString
+    string += " " * margin
+    stdscr.addstr(0, 0, string, curses.A_REVERSE)
+    stdscr.move(y, x)
 
 def needsStoreVariable(opcode, version):
   # TODO: Sometimes the opcode changes between versions
@@ -2262,6 +2229,15 @@ def getOperandTypeFromBytes(byte):
     return OperandType.Variable
 
 def main():
+  global stdscr
+  stdscr = curses.initscr()
+  stdscr.clear()
+  stdscr.idlok(True)
+  stdscr.scrollok(True)
+  y, x = stdscr.getmaxyx()
+  stdscr.move(y-1, 0)
+
+
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
   main_memory.readDictionary()
 
