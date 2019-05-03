@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import pickle
+import traceback
 import readchar
 import sys
 import random
@@ -46,7 +47,6 @@ TRACEPRINT = False
 LOGPRINT = False
 
 stdscr = None
-topscr = None
 
 def printTrace(*string, end=''):
   if TRACEPRINT:
@@ -173,6 +173,8 @@ class Memory:
     self.command_stream = ""
     self.stream = ""
     self.targetWindow = 0
+    self.topWinCursor = (0,0)
+    self.bottomWinCursor = (0,0)
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -1376,45 +1378,30 @@ class Memory:
     quit()
 
   def splitWindow(self, rows):
-    global topscr
-    if (rows == 0):
-      if topscr is not None:
-        del topscr
-        topscr = None
-      self.targetWindow = 0
+    self.topWinRows = rows
+
+    maxy, maxx = stdscr.getmaxyx()
+    stdscr.setscrreg(rows+1, maxy-1)
+
+    if rows == 0:
       return
 
-    # Store the y,x co-ordinate of the cursor
-    y, x = curses.getsyx()
-    inTopscr = False
+    y, x = stdscr.getyx()
 
-    if topscr is not None:
-      if y < topscr.getmaxyx()[0]:
-        inTopscr = True
+    if self.version == 3:
+      # Clear the window
+      stdscr.addstr(1, 0, ' '*maxx * rows)
 
-    # Do the window split
-    if topscr is not None:
-      del topscr
-    maxy, maxx = stdscr.getmaxyx()
-    topscr = curses.newwin(rows, maxx, 1, 0) # Offset for status bar
-
-    # In version three, we clear the contents of the top window
-    if (self.version == 3):
-      topscr.clear()
-
-    # Is the cursor still in the same window it was before?
-    # If not, move it to the top-left of the window
-    if inTopscr and y > rows: # Was in topscr, no longer in topscr
-      topscr.setyx(0,0)
-    elif not inTopscr and y < rows: # WAs in bottomwin, no longer in bottomwin
-      stdscr.setyx(0,0)
+    self.topWinCursor = (1,0)
+    stdscr.move(y,x)
+    # TODO: Set the cursor correctly
 
   def setWindow(self, window):
     if window > 1:
       raise Exception("Illegal window selected")
     self.targetWindow = window
     if window == 1:
-      topscr.move(0,0)
+      self.topWinCursor = (1,0)
 
   def decodeOperands(self, instruction):
     oper_zip = zip(instruction.operand_types, instruction.operands)
@@ -2195,30 +2182,27 @@ class Memory:
 
     if 1 in self.active_output_streams:
       if (self.bufferText and self.targetWindow == 0):
+        y, x = self.bottomWinCursor
+        stdscr.move(y, x)
         self.printBufferedString(string + end)
+        self.bottomWinCursor = stdscr.getyx()
       else:
         if (self.targetWindow == 0):
-          stdscr.addstr(string + end)
+          y, x = self.bottomWinCursor
+          stdscr.move(y, x)
+          stdscr.addstr(y, x, string + end)
+          self.bottomWinCursor = stdscr.getyx()
         elif (self.targetWindow == 1):
-          try:
-            topscr.addstr(string + end)
-          except Exception:
-            pass
+          y, x = self.topWinCursor
+          stdscr.move(y, x)
+          stdscr.addstr(y, x, string + end)
+          self.topWinCursor = stdscr.getyx()
     if 2 in self.active_output_streams:
       self.transcript += string + end
     if 5 in self.active_output_streams:
       self.stream += string + end
 
   def refreshWindows(self):
-    # Dirty curses hack...
-    # Refresh the screen to build the 'under' text
-    # Print the top window fully
-    # Reset the cursor position by refreshing
-    # the bottom window again
-    stdscr.refresh()
-    if topscr:
-      topscr.touchwin()
-      topscr.refresh()
     stdscr.refresh()
 
   def drawWindows(self):
@@ -2244,6 +2228,7 @@ class Memory:
 
     roomNameLength = len(roomName)
 
+    # Score or time...
     scoreTimeString = ""
     if self.timedGame:
       hour = self.getGlobalVariableValue(1)
@@ -2254,12 +2239,13 @@ class Memory:
       turns = self.getGlobalVariableValue(2)
       scoreTimeString = "Score: {0: >3}  Turns: {1: >4}".format(score, turns)
 
+    # Do the rubbish part
     columns, rows = stdscr.getmaxyx()
     margin = 8
-    printScoreStringAt = columns - (margin - len(scoreTimeString))
+    printScoreStringAt = rows - margin - len(scoreTimeString)
     spaceBetweenRoomNameAndScoreString = printScoreStringAt - roomNameLength
 
-    # Move to top...
+    # Save position, print the status line, come back
     y, x = stdscr.getyx()
     string = roomName
     string += " " * spaceBetweenRoomNameAndScoreString
@@ -2297,11 +2283,13 @@ def main():
   stdscr.idlok(True)
   stdscr.scrollok(True)
   y, x = stdscr.getmaxyx()
-  stdscr.move(y-1, 0)
 
   # Load up the game
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
   main_memory.readDictionary()
+
+  # Set the initial cursor position
+  main_memory.bottomWinCursor = (y-1, 0)
 
   # If this is Z-Machine 6, we don't have a 'first instruction',
   # but a 'main routine' instead. So create a call instruction
@@ -2319,4 +2307,10 @@ def loop(main_memory):
   instr.run(main_memory)
 
 if __name__ == "__main__":
-  main()
+  try:
+    main()
+  except Exception:
+    # Oh oh. Try and save the terminal from a hideous fate!
+    curses.endwin()
+    # What happened?!
+    traceback.print_exc()
