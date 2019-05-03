@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -671,6 +671,12 @@ class Memory:
     self.setOutputStream(stream, table)
     self.pc += instruction.instr_length
 
+  def buffer_mode(self, instruction):
+    printLog("buffer_mode")
+    decoded_opers  = self.decodeOperands(instruction)
+    self.bufferText = decoded_opers[0] == 1
+    self.pc += instruction.instr_length
+
   def input_stream(self, instruction):
     printLog("input_stream")
     decoded_opers  = self.decodeOperands(instruction)
@@ -935,7 +941,9 @@ class Memory:
     current_routine = self.routine_callstack.pop()
     # Return ret_val into store variable and...
     printLog("Returning", ret_val, "into", current_routine.store_variable)
-    self.setVariable(current_routine.store_variable, ret_val)
+    # Cater for throwaway calls
+    if current_routine.store_variable is not None:
+      self.setVariable(current_routine.store_variable, ret_val)
     # kick execution home - stack is scope limited to the routine so no need to
     # do anything with it.
     self.pc = current_routine.return_address
@@ -1242,10 +1250,6 @@ class Memory:
 
     self.setVariable(instruction.store_variable, not_value)
     self.pc += instruction.instr_length # Move past the instr regardless
-
-  def call_1n(self, instruction):
-    printLog("call_1n")
-    raise Exception("call_1n: Not implemented")
 
   def add(self, instruction):
     printLog("add")
@@ -2036,6 +2040,10 @@ class Memory:
       return "div", self.div
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x18):
       return "mod", self.mod
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x19):
+      return "call_2s", self.call
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1A):
+      return "call_2n", self.call
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
       return "jz", self.jz
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
@@ -2052,6 +2060,8 @@ class Memory:
       return "dec", self.dec
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
       return "print_addr", self.print_addr
+    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x8):
+      return "call_1s", self.call
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x9):
       return "remove_obj", self.remove_obj
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xa):
@@ -2068,7 +2078,7 @@ class Memory:
       if self.version < 5:
         return "not", self.not_1
       else:
-        return "call_1n", self.call_1n
+        return "call_1n", self.call
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
       return "rtrue", self.rtrue
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
@@ -2103,6 +2113,14 @@ class Memory:
       return "print_num", self.print_num
     if (operand_type == Operand.VAR and byte == 231):
       return "random", self.random
+    if (operand_type == Operand.VAR and byte == 236):
+      return "call_vs2", self.call
+    if (operand_type == Operand.VAR and byte == 242):
+      return "buffer_mode", self.buffer_mode
+    if (operand_type == Operand.VAR and byte == 249):
+      return "call_vn", self.call
+    if (operand_type == Operand.VAR and byte == 250):
+      return "call_vn2", self.call
     if (operand_type == Operand.VAR and byte == 225):
       return "storew", self.storew
     if (operand_type == Operand.VAR and byte == 226):

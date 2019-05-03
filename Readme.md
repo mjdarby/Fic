@@ -28,7 +28,15 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 ## Opcodes implemented
 - add
 - and
+- buffer_mode
 - call
+- call_2n
+- call_1n
+- call_vn
+- call_vn2
+- call_2s
+- call_1s
+- call_vs2
 - clear_attr
 - dec
 - dec_chk
@@ -116,27 +124,21 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - sound_effect (for Lurking Horror only)
 
 ## Opcodes remaining for v4
-- call_2s
-- call_1s
 - save (v4)
 - restore (v5)
 - sread (v4 - adds time + callback interrupt)
-- call_vs2
 - erase_window
 - erase_line
 - get_cursor
 - set_cursor
 - set_text_style
-- buffer_mode
 - read_char
 - scan_table
 - output_stream (REDIRECT)
 
 ## Opcodes remaining for v5
-- call_2n
 - set_colour
 - throw
-- call_1n
 - save (v5, becomes EXT)
 - restore (v5, becomes EXT)
 - catch
@@ -144,8 +146,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - aread (v5)
 - output_stream (v5)
 - not (v5)
-- call_vn
-- call_vn2
 - tokenise
 - encode_text
 - copy_table
