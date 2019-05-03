@@ -106,8 +106,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - output_stream (seem to be used more for debug commands)
 - input_stream
 - sound_effect (for Lurking Horror only)
-- split_window (can delay implementation by disabling upper window in flags 1 - probably only Seastalker)
-- set_window (can delay implementation by disabling upper window in flags 1 - probably only Seastalker)
 
 ## Opcodes remaining for v4
 - call_2s
@@ -125,6 +123,8 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - buffer_mode
 - read_char
 - scan_table
+- split_window - Changes in screen model
+- set_window - Changes in screen model
 
 ## Opcodes remaining for v5
 - call_2n

@@ -172,6 +172,7 @@ class Memory:
     self.active_output_streams = [1]
     self.command_stream = ""
     self.stream = ""
+    self.targetWindow = 0
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -196,9 +197,9 @@ class Memory:
       # Bit 5: Screen split available? (0 = Not available, 1 = Available)
       # Bit 6: Variable width is default? (0 = Not default, 1 = Default)
       self.timedGame = isNthBitSet(flags, 1)
-      flags = setNthBit(flags, 4, True) # Status line
-      flags = setNthBit(flags, 5, False) # No split screen
-      flags = setNthBit(flags, 6, True) # Fixed width by default
+      flags = setNthBit(flags, 4, False) # Status line available
+      flags = setNthBit(flags, 5, True) # No split screen
+      flags = setNthBit(flags, 6, False) # Fixed width by default
       self.mem[0x01] = flags
       printLog("flags set: " + bin(self.mem[0x01]))
     else:
@@ -572,7 +573,7 @@ class Memory:
       if char == '\x0d':
         stdscr.addstr(chr(8)*len(currentInput)) # Nasty - overwrites what was just written with... what we're about to write
         return currentInput
-      stdscr.refresh()
+      self.refreshWindows()
 
   def read(self, instruction):
     printLog("read")
@@ -620,6 +621,20 @@ class Memory:
     variable_to_pull_to = decoded_opers[0]
     stack_val = self.getVariable(0)
     self.setVariableInPlace(variable_to_pull_to, stack_val)
+    self.pc += instruction.instr_length
+
+  def split_window(self, instruction):
+    printLog("split_window")
+    decoded_opers  = self.decodeOperands(instruction)
+    lines = decoded_opers[0]
+    self.splitWindow(lines)
+    self.pc += instruction.instr_length
+
+  def set_window(self, instruction):
+    printLog("set_window")
+    decoded_opers  = self.decodeOperands(instruction)
+    windowToSwitchTo = decoded_opers[0]
+    self.setWindow(windowToSwitchTo)
     self.pc += instruction.instr_length
 
   def insert_obj(self, instruction):
@@ -1361,31 +1376,45 @@ class Memory:
     quit()
 
   def splitWindow(self, rows):
-    # TODO
+    global topscr
+    if (rows == 0):
+      if topscr is not None:
+        del topscr
+        topscr = None
+      self.targetWindow = 0
+      return
+
     # Store the y,x co-ordinate of the cursor
     y, x = curses.getsyx()
+    inTopscr = False
+
+    if topscr is not None:
+      if y < topscr.getmaxyx()[0]:
+        inTopscr = True
 
     # Do the window split
-    if topwin is not None:
-      del topwin
-    y, x = stdwin.getmaxyx()
-    topwin = stdwin.subwin(rows, x, 0, 0)
+    if topscr is not None:
+      del topscr
+    maxy, maxx = stdscr.getmaxyx()
+    topscr = curses.newwin(rows, maxx, 1, 0) # Offset for status bar
 
     # In version three, we clear the contents of the top window
     if (self.version == 3):
-      topwin.clear()
+      topscr.clear()
 
-    # TODO
     # Is the cursor still in the same window it was before?
     # If not, move it to the top-left of the window
-#    if not self.targetWindow.isin(y, x):
-#      self.targetWindow.move(0,0)
+    if inTopscr and y > rows: # Was in topscr, no longer in topscr
+      topscr.setyx(0,0)
+    elif not inTopscr and y < rows: # WAs in bottomwin, no longer in bottomwin
+      stdscr.setyx(0,0)
 
   def setWindow(self, window):
-    if window == 0:
-      self.targetWindow = stdwin
-    elif window == 1:
-      self.targetWindow = topwin
+    if window > 1:
+      raise Exception("Illegal window selected")
+    self.targetWindow = window
+    if window == 1:
+      topscr.move(0,0)
 
   def decodeOperands(self, instruction):
     oper_zip = zip(instruction.operand_types, instruction.operands)
@@ -2042,6 +2071,10 @@ class Memory:
       return "push", self.push
     if (operand_type == Operand.VAR and byte == 233):
       return "pull", self.pull
+    if (operand_type == Operand.VAR and byte == 234):
+      return "split_window", self.split_window
+    if (operand_type == Operand.VAR and byte == 235):
+      return "set_window", self.set_window
     if (operand_type == Operand.VAR and byte == 248):
       return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
@@ -2057,7 +2090,7 @@ class Memory:
     # Necessary to stream print as we're out of the
     # regular read/input loop
     self.printToStream("Enter filename> ", '')
-    stdscr.refresh()
+    self.refreshWindows()
     file_name = self.handleInput()
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
@@ -2077,7 +2110,7 @@ class Memory:
 
   def restoreGame(self):
     self.printToStream("Enter filename> ", '')
-    stdscr.refresh()
+    self.refreshWindows()
     file_name = self.handleInput()
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
@@ -2161,19 +2194,37 @@ class Memory:
       return
 
     if 1 in self.active_output_streams:
-      if (self.bufferText):
+      if (self.bufferText and self.targetWindow == 0):
         self.printBufferedString(string + end)
       else:
-        stdscr.addstr(string + end)
+        if (self.targetWindow == 0):
+          stdscr.addstr(string + end)
+        elif (self.targetWindow == 1):
+          try:
+            topscr.addstr(string + end)
+          except Exception:
+            pass
     if 2 in self.active_output_streams:
       self.transcript += string + end
     if 5 in self.active_output_streams:
       self.stream += string + end
 
+  def refreshWindows(self):
+    # Dirty curses hack...
+    # Refresh the screen to build the 'under' text
+    # Print the top window fully
+    # Reset the cursor position by refreshing
+    # the bottom window again
+    stdscr.refresh()
+    if topscr:
+      topscr.touchwin()
+      topscr.refresh()
+    stdscr.refresh()
+
   def drawWindows(self):
     if self.version < 4:
       self.drawStatusLine()
-    stdscr.refresh()
+    self.refreshWindows()
 
   def getCurrentWindowCursorPosition(self):
     return stdscr.getyx()
