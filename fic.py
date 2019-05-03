@@ -46,8 +46,8 @@ logfile = open('full_log.txt', 'w', buffering=1)
 transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
-TRACEPRINT = True
-LOGPRINT = True
+TRACEPRINT = False
+LOGPRINT = False
 
 MAX_SAVE_FILE_LENGTH = 20
 
@@ -1496,14 +1496,21 @@ class Memory:
   def splitWindow(self, rows):
     self.topWinRows = rows
 
+    # Store cursor
+    y, x = stdscr.getyx()
     maxy, maxx = stdscr.getmaxyx()
+    printLog("Split window:", rows, maxy, maxx)
+
+    # Let the bottom part of the window scroll
+    stdscr.move(rows+1, 0) # This line is needed by windows-curses
+                           # as it seems that the cursor must be
+                           # in the scrollable area for the call to
+                           # succeed. Not needed when tested on
+                           # Linux.
     stdscr.setscrreg(rows+1, maxy-1)
 
     if rows == 0:
       return
-
-    # Store cursor
-    y, x = stdscr.getyx()
 
     if self.version == 3:
       # Clear the window
