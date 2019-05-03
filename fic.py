@@ -47,6 +47,8 @@ logfile = open('full_log.txt', 'w', buffering=1)
 TRACEPRINT = False
 LOGPRINT = False
 
+MAX_SAVE_FILE_LENGTH = 20
+
 stdscr = None
 
 def printTrace(*string, end=''):
@@ -255,11 +257,17 @@ class Memory:
     string = string.strip()
     num_bytes = len(string)
     text_offset = 1
+
+    # Version 5 writes the number of characters in the first
+    # byte of the buffer.
     if (self.version > 4):
       self.mem[address+1] = num_bytes
       text_offset = 2
+
+    # Write the text to the buffer
     for i in range(num_bytes):
       self.mem[address+text_offset+i] = ord(string[i])
+
     # If version < 5, add a zero terminator
     if (self.version < 5):
       self.mem[address+text_offset+num_bytes] = 0
@@ -557,9 +565,14 @@ class Memory:
     # Wipe it all.
     self.__init__(self.raw)
     self.readDictionary()
+    y, x = stdscr.getmaxyx()
+    self.bottomWinCursor = (y-1, 0)
+    stdscr.clear()
 
   def handleInput(self, length):
     y, x = stdscr.getyx()
+    maxy, maxx = stdscr.getmaxyx()
+    length = min(length, maxx-2) # Not exactly conforming to standard here...
     inputWin = stdscr.subwin(1, length, y, x)
     tb = curses.textpad.Textbox(inputWin)
     text = tb.edit()
@@ -2079,7 +2092,7 @@ class Memory:
     # regular read/input loop
     self.printToStream("Enter filename> ", '')
     self.refreshWindows()
-    file_name = self.handleInput()
+    file_name = self.handleInput(MAX_SAVE_FILE_LENGTH)
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
     printLog("save: file_name: ", file_name)
@@ -2099,7 +2112,7 @@ class Memory:
   def restoreGame(self):
     self.printToStream("Enter filename> ", '')
     self.refreshWindows()
-    file_name = self.handleInput()
+    file_name = self.handleInput(MAX_SAVE_FILE_LENGTH)
     self.printToStream(file_name, '\n')
     file_path = os.path.abspath(file_name)
     printLog("restore: file_name: ", file_name)
@@ -2323,5 +2336,3 @@ if __name__ == "__main__":
     curses.echo()
     stdscr.keypad(False)
     curses.endwin()
-    # What happened?!
-    traceback.print_exc()

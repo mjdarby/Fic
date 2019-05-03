@@ -112,7 +112,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - call_1s
 - save (v4)
 - restore (v5)
-- NOT call_vs (replaces call from v1)
 - sread (v4 - adds time + callback interrupt)
 - call_vs2
 - erase_window
@@ -123,8 +122,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - buffer_mode
 - read_char
 - scan_table
-- split_window - Changes in screen model
-- set_window - Changes in screen model
 
 ## Opcodes remaining for v5
 - call_2n
