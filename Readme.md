@@ -42,6 +42,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - get_sibling
 - inc
 - inc_chk
+- input_stream
 - insert_obj
 - je
 - jg
@@ -58,6 +59,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - nop
 - not
 - or
+- output_stream
 - print
 - print_addr
 - print_char
@@ -91,6 +93,14 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - verify
 
 # TODOs
+## Enhancements
+- Better recording/replaying - prompt for filenames on input_stream = 1, output_stream = 4
+
+## Refactor
+- Split Memory into multiple classes
+- Lots of mixing of underscore variable names + camelcase
+- getOpcode needs tidying - mixes decimal with hex
+
 ## Architecture / To Do
 - Screen model
   - Setting screen dimensions
@@ -103,8 +113,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
   - True random
 
 ## Opcodes remaining for v3 in general
-- output_stream (seem to be used more for debug commands)
-- input_stream
 - sound_effect (for Lurking Horror only)
 
 ## Opcodes remaining for v4
@@ -122,6 +130,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - buffer_mode
 - read_char
 - scan_table
+- output_stream (REDIRECT)
 
 ## Opcodes remaining for v5
 - call_2n

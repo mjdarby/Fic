@@ -43,6 +43,8 @@ input_map = dict(zip(['`','a','b','c','d','e','f','g','h','i','j','k','l','m','n
 # Logging
 tracefile = open('trace.txt', 'w', buffering=1)
 logfile = open('full_log.txt', 'w', buffering=1)
+transcript = open('transcript.txt', 'w', buffering=1)
+commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
 LOGPRINT = False
@@ -173,11 +175,15 @@ class Memory:
     self.setWidthHeight(80, 20)
     self.setInterpreterNumberVersion(6, ord('I'))
     self.active_output_streams = [1]
-    self.command_stream = ""
     self.stream = ""
     self.targetWindow = 0
     self.topWinCursor = (0,0)
     self.bottomWinCursor = (0,0)
+    self.z_memory_buffer = ""
+    self.z_memory_address = 0x00
+    self.active_input_stream = 0
+    self.input_current_line = 0
+    self.input_lines = []
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -589,7 +595,20 @@ class Memory:
     parse_buffer_address = decoded_opers[1]
 
     maxLen = self.getTextBufferLength(text_buffer_address)
-    string = self.handleInput(maxLen)
+    if (self.active_input_stream == 0):
+      string = self.handleInput(maxLen)
+    else:
+      # Get next line from file... if we run out of lines
+      # or the file doesn't exist, go back to the old input method
+      try:
+        string = self.input_lines[self.input_current_line]
+        self.input_current_line += 1
+      except Exception:
+        self.printToStream("End of input file.", '\n')
+        self.active_input_stream = 0
+        self.printToStream(">", '')
+        self.refreshWindows()
+        string = self.handleInput(maxLen)
 
     self.printToCommandStream(string, '\n')
     self.printToStream(string, '\n')
@@ -640,6 +659,30 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     windowToSwitchTo = decoded_opers[0]
     self.setWindow(windowToSwitchTo)
+    self.pc += instruction.instr_length
+
+  def output_stream(self, instruction):
+    printLog("output_stream")
+    decoded_opers  = self.decodeOperands(instruction)
+    stream = getSignedEquivalent(decoded_opers[0])
+    table = None
+    if stream == 3:
+      table = decoded_opers[1]
+    self.setOutputStream(stream, table)
+    self.pc += instruction.instr_length
+
+  def input_stream(self, instruction):
+    printLog("input_stream")
+    decoded_opers  = self.decodeOperands(instruction)
+    input_stream = decoded_opers[0]
+    self.setInputStream(input_stream)
+    self.pc += instruction.instr_length
+
+  def sound_effect(self, instruction):
+    printLog("sound_effect")
+    decoded_opers  = self.decodeOperands(instruction)
+    # TODO - Implement
+    # My favourite unimplemented opcode!
     self.pc += instruction.instr_length
 
   def insert_obj(self, instruction):
@@ -2076,6 +2119,12 @@ class Memory:
       return "split_window", self.split_window
     if (operand_type == Operand.VAR and byte == 235):
       return "set_window", self.set_window
+    if (operand_type == Operand.VAR and byte == 243):
+      return "output_stream", self.output_stream
+    if (operand_type == Operand.VAR and byte == 244):
+      return "input_stream", self.input_stream
+    if (operand_type == Operand.VAR and byte == 245):
+      return "sound_effect", self.sound_effect
     if (operand_type == Operand.VAR and byte == 248):
       return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
@@ -2184,13 +2233,43 @@ class Memory:
         stdscr.addstr('\n')
       stdscr.addstr(token)
 
+  def dumpRedirectStream(self):
+    char_count = len(self.z_memory_buffer)
+    char_count_high, char_count_low = self.breakWord(char_count)
+    self.mem[self.z_memory_address] = char_count_high
+    self.mem[self.z_memory_address+1] = char_count_low
+    for i in range(char_count):
+      self.mem[self.z_memory_address+2+i] = ord(self.z_memory_buffer[i])
+
+  def setInputStream(self, stream):
+    self.active_input_stream = stream
+
+  def setOutputStream(self, stream, table):
+    if stream == 0:
+      return
+
+    state = stream > 0
+    stream = abs(stream)
+
+    if state:
+      if stream not in self.active_output_streams:
+        self.active_output_streams.append(stream)
+        if stream == 3:
+          self.z_memory_address = table
+          self.dumpRedirectStream()
+    if not state:
+      if stream in self.active_output_streams:
+        self.active_output_streams.remove(stream)
+        if stream == 3:
+          self.dumpRedirectStream()
+
   def printToCommandStream(self, string, end):
     if 3 in self.active_output_streams:
       # No printing if 3 is active
       return
 
     if 4 in self.active_output_streams:
-      self.command_stream += string + end
+      print(string, end=end, file=commands)
 
   def printToStream(self, string, end):
     if 3 in self.active_output_streams:
@@ -2198,6 +2277,7 @@ class Memory:
       # No more printing if 3 is active
       return
 
+    # Print to screen
     if 1 in self.active_output_streams:
       if (self.bufferText and self.targetWindow == 0):
         y, x = self.bottomWinCursor
@@ -2215,8 +2295,17 @@ class Memory:
           stdscr.move(y, x)
           stdscr.addstr(y, x, string + end)
           self.topWinCursor = stdscr.getyx()
+
+    # Print to transcript
+    # TODO: Buffering
     if 2 in self.active_output_streams:
-      self.transcript += string + end
+      if (self.bufferText and self.targetWindow == 0):
+        print(string, end=end, file=transcript)
+      else:
+        if (self.targetWindow == 0):
+          print(string, end=end, file=transcript)
+
+    # Print to private
     if 5 in self.active_output_streams:
       self.stream += string + end
 
@@ -2311,6 +2400,12 @@ def main():
 
   # Set the initial cursor position
   main_memory.bottomWinCursor = (y-1, 0)
+
+  try:
+    replay = open('replay.txt', 'r', buffering=1)
+    main_memory.input_lines = replay.readlines()
+  except:
+    pass
 
   # If this is Z-Machine 6, we don't have a 'first instruction',
   # but a 'main routine' instead. So create a call instruction
