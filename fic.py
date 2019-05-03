@@ -12,6 +12,7 @@ import os
 import ctypes
 import struct
 import curses
+import curses.textpad
 from enum import Enum
 
 # Enums
@@ -246,6 +247,9 @@ class Memory:
       byte += entry_size
 
   # Input shenaningans
+  def getTextBufferLength(self, address):
+    return self.mem[address] + 1
+
   def writeToTextBuffer(self, string, address):
     string = string.lower()
     string = string.strip()
@@ -554,28 +558,13 @@ class Memory:
     self.__init__(self.raw)
     self.readDictionary()
 
-  def handleInput(self):
-    # TODO: Support left/right/up/down arrows, copy/paste etc...
-    # You never know how good you've got it until you give it up!
-    # Maybe one day Python will release a version of input() that
-    # doesn't print the newline and we won't have to write our own
-    # implementation.
-    currentInput = ""
-    while True:
-      char = readchar.readkey() # Returns 1, 2, 3 or 4 length strings
-      if len(char) == 1 and ord(char) > 31 and ord(char) < 127:
-        currentInput += char
-        stdscr.addch(char)
-      if len(char) == 1 and ord(char) == 8:
-        if len(currentInput) > 0:
-          currentInput = currentInput[0:-1]
-          stdscr.addch(char)
-          stdscr.addch(' ')
-          stdscr.addch(char)
-      if char == '\x0d':
-        stdscr.addstr(chr(8)*len(currentInput)) # Nasty - overwrites what was just written with... what we're about to write
-        return currentInput
-      self.refreshWindows()
+  def handleInput(self, length):
+    y, x = stdscr.getyx()
+    inputWin = stdscr.subwin(1, length, y, x)
+    tb = curses.textpad.Textbox(inputWin)
+    text = tb.edit()
+    del inputWin
+    return text
 
   def read(self, instruction):
     printLog("read")
@@ -586,7 +575,8 @@ class Memory:
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
 
-    string = self.handleInput()
+    maxLen = self.getTextBufferLength(text_buffer_address)
+    string = self.handleInput(maxLen)
 
     self.printToCommandStream(string, '\n')
     self.printToStream(string, '\n')
@@ -1386,6 +1376,7 @@ class Memory:
     if rows == 0:
       return
 
+    # Store cursor
     y, x = stdscr.getyx()
 
     if self.version == 3:
@@ -1394,12 +1385,22 @@ class Memory:
 
     self.topWinCursor = (1,0)
     stdscr.move(y,x)
-    # TODO: Set the cursor correctly
+
+    # The spec implies that you need to have the bottom window
+    # selected to do a split, so theoretically we should be
+    # able to assume the current cursor position is the
+    # bottom cursor's location. If this is no longer in the
+    # bottom window, move it to the top left of the bottom
+    # window.
+    if self.bottomWinCursor[0] <= rows:
+      self.bottomWinCursor = (rows+1, 0)
 
   def setWindow(self, window):
     if window > 1:
       raise Exception("Illegal window selected")
     self.targetWindow = window
+
+    # Always reset top cursor for top window selection
     if window == 1:
       self.topWinCursor = (1,0)
 
@@ -2137,6 +2138,10 @@ class Memory:
     except FileNotFoundError:
       pass
 
+    # Spec: Collapse upper window on restore
+    if self.version > 2:
+      self.splitWindow(0)
+
     return 0
 
   def print_debug(self):
@@ -2279,6 +2284,9 @@ def main():
   # Setup for screen
   global stdscr
   stdscr = curses.initscr()
+  curses.noecho()
+  curses.cbreak()
+  stdscr.keypad(True)
   stdscr.clear()
   stdscr.idlok(True)
   stdscr.scrollok(True)
@@ -2309,8 +2317,11 @@ def loop(main_memory):
 if __name__ == "__main__":
   try:
     main()
-  except Exception:
-    # Oh oh. Try and save the terminal from a hideous fate!
+  finally:
+    # Try and save the terminal from a hideous fate!
+    curses.nocbreak()
+    curses.echo()
+    stdscr.keypad(False)
     curses.endwin()
     # What happened?!
     traceback.print_exc()
