@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -46,8 +46,8 @@ logfile = open('full_log.txt', 'w', buffering=1)
 transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
-TRACEPRINT = False
-LOGPRINT = False
+TRACEPRINT = True
+LOGPRINT = True
 
 MAX_SAVE_FILE_LENGTH = 20
 
@@ -177,6 +177,7 @@ class Memory:
     self.active_output_streams = [1]
     self.stream = ""
     self.targetWindow = 0
+    self.topWinRows = 0
     self.topWinCursor = (0,0)
     self.bottomWinCursor = (0,0)
     self.z_memory_buffer = ""
@@ -184,6 +185,10 @@ class Memory:
     self.active_input_stream = 0
     self.input_current_line = 0
     self.input_lines = []
+    self.text_reverse_video = False
+    self.text_bold = False
+    self.text_italic = False
+    self.text_fixed_pitch = False
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -594,6 +599,12 @@ class Memory:
     text_buffer_address = decoded_opers[0]
     parse_buffer_address = decoded_opers[1]
 
+    if len(decoded_opers) > 2:
+      time = decoded_opers[2]
+      routine = decoded_opers[3]
+      raise Exception("read with callback - not implemented")
+
+
     maxLen = self.getTextBufferLength(text_buffer_address)
     if (self.active_input_stream == 0):
       string = self.handleInput(maxLen)
@@ -614,6 +625,27 @@ class Memory:
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
     self.parseString(string, parse_buffer_address, text_buffer_address)
+    self.pc += instruction.instr_length
+
+  def read_char(self, instruction):
+    printLog("read_char")
+    self.drawWindows()
+
+    decoded_opers  = self.decodeOperands(instruction)
+    useless_argument = decoded_opers[0]
+    if len(decoded_opers) > 1:
+      time = decoded_opers[1]
+      routine = decoded_opers[2]
+      raise Exception("read_char with callback - not implemented")
+
+    # TODO: Stuff with time/routine
+
+    string = stdscr.getkey()
+
+    self.printToCommandStream(string, '\n')
+    self.printToStream(string, '\n')
+    self.setVariable(instruction.store_variable, string)
+
     self.pc += instruction.instr_length
 
   def set_attr(self, instruction):
@@ -647,6 +679,13 @@ class Memory:
     self.setVariableInPlace(variable_to_pull_to, stack_val)
     self.pc += instruction.instr_length
 
+  def erase_window(self, instruction):
+    printLog("erase_window")
+    decoded_opers  = self.decodeOperands(instruction)
+    window = getSignedEquivalent(decoded_opers[0])
+    self.eraseWindow(window)
+    self.pc += instruction.instr_length
+
   def split_window(self, instruction):
     printLog("split_window")
     decoded_opers  = self.decodeOperands(instruction)
@@ -671,10 +710,25 @@ class Memory:
     self.setOutputStream(stream, table)
     self.pc += instruction.instr_length
 
+  def set_text_style(self, instruction):
+    printLog("set_text_style")
+    decoded_opers  = self.decodeOperands(instruction)
+    new_style = decoded_opers[0]
+    self.setTextStyle(new_style)
+    self.pc += instruction.instr_length
+
   def buffer_mode(self, instruction):
     printLog("buffer_mode")
     decoded_opers  = self.decodeOperands(instruction)
     self.bufferText = decoded_opers[0] == 1
+    self.pc += instruction.instr_length
+
+  def set_cursor(self, instruction):
+    printLog("set_cursor")
+    decoded_opers  = self.decodeOperands(instruction)
+    line = decoded_opers[0]
+    column = decoded_opers[1]
+    self.setCursor(line, column)
     self.pc += instruction.instr_length
 
   def input_stream(self, instruction):
@@ -1427,6 +1481,18 @@ class Memory:
     curses.endwin()
     quit()
 
+  def eraseWindow(self, window):
+    maxy, maxx = stdscr.getmaxyx()
+    if window == 0:
+      stdscr.addstr(self.topWinRows + 1, 0, ' ' * maxx * (maxy-self.topWinRows))
+    if window == 1:
+      stdscr.addstr(1, 0, ' ' * maxx * (self.topWinRows))
+    if window == -1:
+      self.splitWindow(0)
+      stdscr.addstr(1, 0, ' ' * maxx * maxy)
+    if window == -2:
+      stdscr.addstr(1, 0, ' ' * maxx * maxy)
+
   def splitWindow(self, rows):
     self.topWinRows = rows
 
@@ -1915,7 +1981,7 @@ class Memory:
 
 
   def getPropertyAddressV4(self, obj_number, prop_number):
-    prop_list_address = getPropertyListAddress(obj_number)
+    prop_list_address = self.getPropertyListAddress(obj_number)
     raise Exception("To implement")
 
   def getOperandCount(self, form, opcode_byte):
@@ -2115,8 +2181,14 @@ class Memory:
       return "random", self.random
     if (operand_type == Operand.VAR and byte == 236):
       return "call_vs2", self.call
+    if (operand_type == Operand.VAR and byte == 239):
+      return "set_cursor", self.set_cursor
+    if (operand_type == Operand.VAR and byte == 237):
+      return "erase_window", self.erase_window
     if (operand_type == Operand.VAR and byte == 242):
       return "buffer_mode", self.buffer_mode
+    if (operand_type == Operand.VAR and byte == 241):
+      return "set_text_style", self.set_text_style
     if (operand_type == Operand.VAR and byte == 249):
       return "call_vn", self.call
     if (operand_type == Operand.VAR and byte == 250):
@@ -2143,6 +2215,8 @@ class Memory:
       return "input_stream", self.input_stream
     if (operand_type == Operand.VAR and byte == 245):
       return "sound_effect", self.sound_effect
+    if (operand_type == Operand.VAR and byte == 246):
+      return "read_char", self.read_char
     if (operand_type == Operand.VAR and byte == 248):
       return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
@@ -2236,6 +2310,19 @@ class Memory:
 
     printLog("-------------")
 
+  def getTextAttributes(self):
+    flags = 0
+    if self.text_reverse_video:
+      flags |= curses.A_REVERSE
+    if self.text_bold:
+      flags |= curses.A_BOLD
+    if self.text_italic:
+      flags |= curses.A_ITALIC
+    if self.text_fixed_pitch:
+      pass
+    return flags
+
+
   def printBufferedString(self, string):
     # Idea: Split string into words
     # Print each word if it won't off the end of the screen
@@ -2248,8 +2335,8 @@ class Memory:
       y, x = stdscr.getyx()
       maxY, maxX = stdscr.getmaxyx()
       if x + len(token) > maxX:
-        stdscr.addstr('\n')
-      stdscr.addstr(token)
+        stdscr.addstr('\n', self.getTextAttributes())
+      stdscr.addstr(token, self.getTextAttributes())
 
   def dumpRedirectStream(self):
     char_count = len(self.z_memory_buffer)
@@ -2258,6 +2345,29 @@ class Memory:
     self.mem[self.z_memory_address+1] = char_count_low
     for i in range(char_count):
       self.mem[self.z_memory_address+2+i] = ord(self.z_memory_buffer[i])
+
+  def setTextStyle(self, textStyle):
+    if textStyle == 0:
+      self.text_reverse_video = False
+      self.text_bold = False
+      self.text_italic = False
+      self.text_fixed_pitch = False
+    if textStyle == 1:
+      self.text_reverse_video = True
+    if textStyle == 2:
+      self.text_bold = True
+    if textStyle == 4:
+      self.text_italic = True
+    if textStyle == 8:
+      self.text_fixed_pitch = True
+
+  def setCursor(self, line, column):
+    if self.targetWindow == 0:
+      # Remember there's an offset for the bottom window
+      self.bottomWinCursor = (self.topWinRows + line, column)
+    elif self.targetWindow == 1:
+      # There's an offset for the bottom one too...
+      self.topWinCursor = (line + 1, column)
 
   def setInputStream(self, stream):
     self.active_input_stream = stream
@@ -2306,12 +2416,12 @@ class Memory:
         if (self.targetWindow == 0):
           y, x = self.bottomWinCursor
           stdscr.move(y, x)
-          stdscr.addstr(y, x, string + end)
+          stdscr.addstr(y, x, string + end, self.getTextAttributes())
           self.bottomWinCursor = stdscr.getyx()
         elif (self.targetWindow == 1):
           y, x = self.topWinCursor
           stdscr.move(y, x)
-          stdscr.addstr(y, x, string + end)
+          stdscr.addstr(y, x, string + end, self.getTextAttributes())
           self.topWinCursor = stdscr.getyx()
 
     # Print to transcript

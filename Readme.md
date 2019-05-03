@@ -30,17 +30,18 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - and
 - buffer_mode
 - call
-- call_2n
 - call_1n
+- call_1s
+- call_2n
+- call_2s
 - call_vn
 - call_vn2
-- call_2s
-- call_1s
 - call_vs2
 - clear_attr
 - dec
 - dec_chk
 - div
+- erase_window
 - get_child
 - get\_next_prop
 - get_parent
@@ -81,6 +82,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - quit
 - random
 - read
+- read_char - minus timing
 - remove_obj
 - restart
 - ret
@@ -91,6 +93,8 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - rtrue
 - save
 - set_attr
+- set_cursor
+- set_text_style - minus fixed pitch
 - show_status
 - store
 - storeb
@@ -103,6 +107,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 # TODOs
 ## Enhancements
 - Better recording/replaying - prompt for filenames on input_stream = 1, output_stream = 4
+- '[MORE]' prompts
 
 ## Refactor
 - Split Memory into multiple classes
@@ -127,12 +132,10 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - save (v4)
 - restore (v5)
 - sread (v4 - adds time + callback interrupt)
-- erase_window
 - erase_line
 - get_cursor
-- set_cursor
-- set_text_style
-- read_char
+- set_text_style - Fixed Pitch
+- read_char (time + callback interrupt)
 - scan_table
 - output_stream (REDIRECT)
 
