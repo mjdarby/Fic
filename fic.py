@@ -1105,7 +1105,8 @@ class Memory:
     # Prop address without size byte
     prop_addr = self.getPropertyAddress(obj_number, prop_number)
     if (prop_addr != 0):  # We found one
-      prop_addr = prop_addr + 1 # Offset for size byte
+      prop_bytes, skip_bytes = self.getPropertySize(prop_addr)
+      prop_addr = prop_addr + skip_bytes # Offset for size byte
     self.setVariable(instruction.store_variable, prop_addr)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -1130,7 +1131,7 @@ class Memory:
       prop_addr = decoded_opers[0] - 1
       printLog("Prop addr: " + hex(prop_addr))
       if prop_addr != 0:
-        prop_bytes = self.getPropertySize(prop_addr)
+        prop_bytes, skip_bytes = self.getPropertySize(prop_addr)
     self.setVariable(instruction.store_variable, prop_bytes)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -1901,8 +1902,8 @@ class Memory:
     prop_addr = self.getPropertyAddress(obj_number, prop_number)
     if (prop_addr == 0): # No property found
       return self.getPropertyDefault(prop_number)
-    prop_bytes = self.getPropertySize(prop_addr)
-    prop_start_addr = prop_addr + 1
+    prop_bytes, skip_bytes = self.getPropertySize(prop_addr)
+    prop_start_addr = prop_addr + skip_bytes
     if (prop_bytes == 2):
       printLog("getProperty: return word: prop num:", prop_number, "val:", hex(self.getWord(prop_start_addr)))
       return self.getWord(prop_start_addr)
@@ -1917,7 +1918,7 @@ class Memory:
     printLog("obj_addr", hex(obj_addr))
     prop_table_offset = 7
     if (self.version > 3):
-      prop_table_offset = 9
+      prop_table_offset = 12 # 6 bytes of attribute, 3 words of relationships
     prop_table_address = self.getWord(obj_addr + prop_table_offset)
     return prop_table_address
 
@@ -1931,36 +1932,31 @@ class Memory:
   def getNextProperty(self, obj_number, prop_number):
     if (prop_number != 0):
       cur_prop_addr = self.getPropertyAddress(obj_number, prop_number)
-      next_prop_addr = cur_prop_addr + 1 + self.getPropertySize(cur_prop_addr)
-      next_prop_number = 0b00011111 & self.getSmallNumber(next_prop_addr)
+      prop_bytes, skip_bytes = self.getPropertySize(cur_prop_addr)
+      next_prop_addr = cur_prop_addr + skip_bytes + prop_bytes
+      next_prop_number = self.getPropertyNumber(next_prop_addr)
       return next_prop_number
     else:
       first_prop_addr = self.getPropertyListAddress(obj_number)
-      first_prop_number = 0b00011111 & self.getSmallNumber(first_prop_addr)
+      first_prop_number = self.getPropertyNumber(first_prop_addr)
       return first_prop_number
 
   def getPropertyAddress(self, obj_number, prop_number):
-    if (self.version < 4):
-      return self.getPropertyAddressV1(obj_number, prop_number)
-    else:
-      return self.getPropertyAddressV4(obj_number, prop_number)
-
-  def getPropertyAddressV1(self, obj_number, prop_number):
     prop_list_address = self.getPropertyListAddress(obj_number)
     printLog("Prop addr: prop list addr:", hex(prop_list_address))
     size_byte_addr = prop_list_address
     size_byte = self.getSmallNumber(size_byte_addr)
     printLog("Prop addr: size_byte:", size_byte)
     while (size_byte != 0):
-      prop_bytes = self.getPropertySize(size_byte_addr)
-      cur_prop_number = 0b00011111 & size_byte
+      prop_bytes, skip_bytes = self.getPropertySize(size_byte_addr)
+      cur_prop_number = self.getPropertyNumber(size_byte_addr)
       printLog("Prop addr: examining prop num:", cur_prop_number)
       if (prop_number == cur_prop_number):
         printLog("Prop addr: found prop at:", hex(size_byte_addr))
         return size_byte_addr
       printLog("Prop addr: wasn't it, skipping bytes:", prop_bytes)
       # Get the next property
-      size_byte_addr += (prop_bytes + 1) # move past size byte + prop bytes
+      size_byte_addr += (prop_bytes + skip_bytes) # move past size byte + prop bytes
       size_byte = self.getSmallNumber(size_byte_addr)
       printLog("Prop addr: next check at", hex(size_byte_addr))
       printLog("Prop addr: size_byte:", size_byte)
@@ -1968,28 +1964,64 @@ class Memory:
     return 0
 
   def getPropertySize(self, prop_address):
+    if self.version < 4:
+      return self.getPropertySizeV1(prop_address)
+    else:
+      return self.getPropertySizeV4(prop_address)
+
+  def getPropertySizeV1(self, prop_address):
     size_byte_addr = prop_address
     size_byte = self.getSmallNumber(size_byte_addr)
     prop_bytes = ((size_byte & 0b11100000) >> 5) + 1
-    return prop_bytes
+    skip_bytes = 1
+    return prop_bytes, skip_bytes
+
+  def getPropertySizeV4(self, prop_address):
+    size_byte_addr = prop_address
+    first_size_byte = self.getSmallNumber(size_byte_addr)
+    if (first_size_byte >> 7) == 1:
+      second_size_byte = self.getSmallNumber(size_byte_addr+1)
+      prop_bytes = (second_size_byte & 0b00111111)
+      if prop_bytes == 0:
+        # As per spec: A value of 0 as property data length (in the second byte) should be interpreted as a length of 64
+        prop_bytes = 64
+      skip_bytes = 2
+    else:
+      skip_bytes = 1
+      if ((first_size_byte & 0b01000000) >> 6) == 1:
+        prop_bytes = 2
+      else:
+        prop_bytes = 1
+    return prop_bytes, skip_bytes
+
+  def getPropertyNumber(self, prop_address):
+    if self.version < 4:
+      return self.getPropertyNumberV1(prop_address)
+    else:
+      return self.getPropertyNumberV4(prop_address)
+
+  def getPropertyNumberV1(self, prop_address):
+    size_byte_addr = prop_address
+    size_byte = self.getSmallNumber(size_byte_addr)
+    return (0b00011111 & size_byte)
+
+  def getPropertyNumberV4(self, prop_address):
+    size_byte_addr = prop_address
+    first_size_byte = self.getSmallNumber(size_byte_addr)
+    return (first_size_byte & 0b00111111)
 
   def setProperty(self, obj_number, prop_number, value):
     prop_address = self.getPropertyAddress(obj_number, prop_number)
-    prop_bytes = self.getPropertySize(prop_address)
+    prop_bytes, skip_bytes = self.getPropertySize(prop_address)
     top_byte, bottom_byte = self.breakWord(value)
     printLog("set prop", obj_number, prop_number, hex(prop_address), top_byte, bottom_byte)
     if (prop_bytes == 2):
-      self.mem[prop_address + 1] = top_byte
-      self.mem[prop_address + 2] = bottom_byte
+      self.mem[prop_address + skip_bytes] = top_byte
+      self.mem[prop_address + skip_bytes + 1] = bottom_byte
     elif (prop_bytes == 1):
-      self.mem[prop_address + 1] = bottom_byte
+      self.mem[prop_address + skip_bytes] = bottom_byte
     else:
       raise Exception("Illegal call to SetProperty")
-
-
-  def getPropertyAddressV4(self, obj_number, prop_number):
-    prop_list_address = self.getPropertyListAddress(obj_number)
-    raise Exception("To implement")
 
   def getOperandCount(self, form, opcode_byte):
     if (form == Form.Long):
@@ -2328,7 +2360,6 @@ class Memory:
     if self.text_fixed_pitch:
       pass
     return flags
-
 
   def printBufferedString(self, string):
     # Idea: Split string into words
