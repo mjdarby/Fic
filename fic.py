@@ -2503,7 +2503,7 @@ class Memory:
     if (len(self.routine_callstack) > 0):
       printLog("Current routine state:")
       printLog(self.routine_callstack[-1].print_debug())
-
+    printLog("Value of address at 0x28:", self.getWord(self.getVariable(0x28)))
     printLog("-------------")
 
   def getTextAttributes(self):
@@ -2579,7 +2579,7 @@ class Memory:
         self.active_output_streams.append(stream)
         if stream == 3:
           self.z_memory_address = table
-          self.dumpRedirectStream()
+#          self.dumpRedirectStream()
     if not state:
       if stream in self.active_output_streams:
         self.active_output_streams.remove(stream)
