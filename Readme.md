@@ -92,6 +92,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - rfalse
 - rtrue
 - save
+- scan_table
 - set_attr
 - set_cursor
 - set_text_style - minus fixed pitch
@@ -137,7 +138,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - get_cursor
 - set\_text\_style - Fixed Pitch
 - read_char (time + callback interrupt)
-- scan_table
 - output_stream (REDIRECT)
 
 ## Opcodes remaining for v5
@@ -158,6 +158,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - log_shift
 - art_shift
 - set_font
+- scan_table (form operand)
 - save_undo
 - restore_undo
 - print_unicode

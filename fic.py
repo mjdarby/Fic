@@ -22,8 +22,8 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify", "scan_table"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -1427,6 +1427,29 @@ class Memory:
       self.setVariable(instruction.store_variable, 0)
     self.pc += instruction.instr_length
 
+  def scan_table(self, instruction):
+    printLog("scan_table")
+    decoded_opers = self.decodeOperands(instruction)
+    scan_value = decoded_opers[0]
+    table_addr = decoded_opers[1]
+    num_words = decoded_opers[2]
+    if len(decoded_opers) > 3:
+      form = decoded_opers[3]
+      raise Exception("V5 scan_table not implemented")
+
+    word_found = False
+    for i in range(num_words):
+      addr_to_check = table_addr +  (i *2)
+      word_in_table = self.getWord(addr_to_check)
+      if scan_value == word_in_table:
+        self.setVariable(instruction.store_variable, addr_to_check)
+        word_found = True
+        break
+
+    self.pc += instruction.instr_length
+    self.handleJumpDestination(word_found, instruction)
+    return
+
   def call(self, instruction):
     printLog("Routine call during run")
     decoded_opers = self.decodeOperands(instruction)
@@ -2285,6 +2308,8 @@ class Memory:
       return "buffer_mode", self.buffer_mode
     if (operand_type == Operand.VAR and byte == 241):
       return "set_text_style", self.set_text_style
+    if (operand_type == Operand.VAR and byte == 247):
+      return "scan_table", self.scan_table
     if (operand_type == Operand.VAR and byte == 249):
       return "call_vn", self.call
     if (operand_type == Operand.VAR and byte == 250):
