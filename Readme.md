@@ -131,8 +131,6 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - sound_effect (for Lurking Horror only)
 
 ## Opcodes remaining for v4
-- save (v4)
-- restore (v5)
 - sread (v4 - adds time + callback interrupt)
 - erase_line
 - get_cursor

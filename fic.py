@@ -570,7 +570,7 @@ class Memory:
     self.printToStream(str(number), '')
 
   def getZsciiCharacter(self, idx):
-    table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
+    table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
     target_character = table[idx-0x20] # idx starts at 0x20 for ' ', so offset
     return target_character
 
@@ -1568,12 +1568,15 @@ class Memory:
     printLog("Split window:", rows, maxy, maxx)
 
     # Let the bottom part of the window scroll
-    stdscr.move(rows+1, 0) # This line is needed by windows-curses
-                           # as it seems that the cursor must be
-                           # in the scrollable area for the call to
-                           # succeed. Not needed when tested on
-                           # Linux.
-    stdscr.setscrreg(rows+1, maxy-1)
+    if (rows+1 < maxy):
+      stdscr.move(rows+1, 0) # This line is needed by windows-curses
+                             # as it seems that the cursor must be
+                             # in the scrollable area for the call to
+                             # succeed. Not needed when tested on
+                             # Linux.
+      stdscr.setscrreg(rows+1, maxy-1)
+    else:
+      pass # The whole screen is the upper window
 
     if rows == 0:
       return
