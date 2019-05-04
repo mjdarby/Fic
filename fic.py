@@ -22,8 +22,8 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save","restore","test_attr","test","verify", "scan_table"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -172,7 +172,6 @@ class Memory:
     self.transcript = ""
     self.getFirstAddress()
     self.setFlags()
-    self.setWidthHeight(80, 20)
     self.setInterpreterNumberVersion(6, ord('I'))
     self.active_output_streams = [1]
     self.stream = ""
@@ -736,7 +735,8 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     line = decoded_opers[0]
     column = decoded_opers[1]
-    self.setCursor(line, column)
+    # Curses starts at 0,0, Z-Machine starts at 1,1
+    self.setCursor(line-1, column-1)
     self.pc += instruction.instr_length
 
   def input_stream(self, instruction):
@@ -962,11 +962,11 @@ class Memory:
     if (self.version > 4):
       raise Exception("save: Moved to EXT from version 5")
     save_successful = self.saveGame()
-    self.pc += instruction.instr_length # Move past the instr regardless
+    self.pc += instruction.instr_length
     # Version 1-3: Jump
     if (self.version < 4):
       self.handleJumpDestination(save_successful, instruction)
-    # Version 4: Store result in save
+    # Version 4: Store result
     elif (self.version < 5):
       self.setVariable(instruction.store_variable, save_successful)
 
@@ -977,7 +977,12 @@ class Memory:
       raise Exception("restore: Moved to EXT from version 5")
     restore_successful = self.restoreGame()
     self.pc += instruction.instr_length
-    self.handleJumpDestination(restore_successful, instruction)
+    # Version 1-3: Jump
+    if (self.version < 4):
+      self.handleJumpDestination(restore_successful, instruction)
+    # Version 4: Store result
+    elif (self.version < 5):
+      self.setVariable(instruction.store_variable, restore_successful)
 
   def pop(self, instruction):
     # Pop stack!
@@ -1516,13 +1521,28 @@ class Memory:
     maxy, maxx = stdscr.getmaxyx()
     if window == 0:
       stdscr.addstr(self.topWinRows + 1, 0, ' ' * maxx * (maxy-self.topWinRows))
+      if self.version < 5:
+        self.bottomWinCursor = (maxy-1, 0)
+      else:
+        self.bottomWinCursor = (self.topWinRows + 1, 0)
     if window == 1:
       stdscr.addstr(1, 0, ' ' * maxx * (self.topWinRows))
+      self.topWinCursor = (0, 0)
     if window == -1:
       self.splitWindow(0)
       stdscr.addstr(1, 0, ' ' * maxx * maxy)
+      if self.version < 5:
+        self.bottomWinCursor = (maxy-1, 0)
+      else:
+        self.bottomWinCursor = (self.topWinRows + 1, 0)
+      self.topWinCursor = (0, 0)
     if window == -2:
       stdscr.addstr(1, 0, ' ' * maxx * maxy)
+      if self.version < 5:
+        self.bottomWinCursor = (maxy-1, 0)
+      else:
+        self.bottomWinCursor = (self.topWinRows + 1, 0)
+      self.topWinCursor = (0, 0)
 
   def splitWindow(self, rows):
     self.topWinRows = rows
@@ -2275,9 +2295,15 @@ class Memory:
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x4):
       return "nop", self.nop
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x5):
-      return "save", self.save
+      if self.version < 4:
+        return "save1", self.save
+      else:
+        return "save4", self.save
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x6):
-      return "restore", self.restore
+      if self.version < 4:
+        return "restore1", self.restore
+      else:
+        return "restore4", self.restore
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
       return "restart", self.restart
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
@@ -2409,7 +2435,7 @@ class Memory:
         self.active_output_streams = loaded_file.active_output_streams
         self.pc = loaded_file.pc
         printLog("post-load:  self.pc", self.pc)
-        return 1
+        return 2
     except FileNotFoundError:
       pass
 
@@ -2560,10 +2586,17 @@ class Memory:
   def refreshWindows(self):
     stdscr.refresh()
 
+  def setScreenDimensions(self):
+    y, x = stdscr.getmaxyx()
+    self.mem[0x20] = y
+    self.mem[0x21] = x
+
   def drawWindows(self):
     if self.version < 4:
       self.drawStatusLine()
+    self.setScreenDimensions()
     self.refreshWindows()
+
 
   def getCurrentWindowCursorPosition(self):
     return stdscr.getyx()
@@ -2648,6 +2681,7 @@ def main():
 
   # Set the initial cursor position
   main_memory.bottomWinCursor = (y-1, 0)
+  main_memory.setScreenDimensions()
 
   try:
     replay = open('replay.txt', 'r', buffering=1)
