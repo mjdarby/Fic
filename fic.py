@@ -188,6 +188,7 @@ class Memory:
     self.text_bold = False
     self.text_italic = False
     self.text_fixed_pitch = False
+    self.restoring = False
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -961,7 +962,16 @@ class Memory:
     # Another instruction that gets moved around...
     if (self.version > 4):
       raise Exception("save: Moved to EXT from version 5")
-    save_successful = self.saveGame()
+
+    if self.restoring:
+      save_successful = 2
+      self.restoring = False
+    else:
+      save_successful = self.saveGame()
+
+    # Save should use the PC for the address of the save
+    # as this is what is responsible for passing the
+    # 'just loaded flag' to the game.
     self.pc += instruction.instr_length
     # Version 1-3: Jump
     if (self.version < 4):
@@ -975,8 +985,9 @@ class Memory:
     # Another instruction that gets moved around...
     if (self.version > 4):
       raise Exception("restore: Moved to EXT from version 5")
-    restore_successful = self.restoreGame()
+
     self.pc += instruction.instr_length
+    restore_successful = self.restoreGame()
     # Version 1-3: Jump
     if (self.version < 4):
       self.handleJumpDestination(restore_successful, instruction)
@@ -1139,12 +1150,15 @@ class Memory:
     printLog("get_prop_len")
     decoded_opers  = self.decodeOperands(instruction)
     # This is the address immediately after the size byte, so minus one
+    # or two depending on the property.
+    # Luckily, those clever designers made it possible to determine
+    # the size of the property from the immdiately preceeding byte
+    # in both v3 and v4+
     prop_bytes = 0
     if decoded_opers[0] != 0: # get_prop_len 0 must return zero...
       prop_addr = decoded_opers[0] - 1
       printLog("Prop addr: " + hex(prop_addr))
-      if prop_addr != 0:
-        prop_bytes, skip_bytes = self.getPropertySize(prop_addr)
+      prop_bytes = self.getPropertySizeFromOneByte(prop_addr)
     self.setVariable(instruction.store_variable, prop_bytes)
     self.pc += instruction.instr_length # Move past the instr
 
@@ -1443,17 +1457,18 @@ class Memory:
       raise Exception("V5 scan_table not implemented")
 
     word_found = False
+    addr_value = 0
     for i in range(num_words):
-      addr_to_check = table_addr +  (i *2)
+      addr_to_check = table_addr +  (i * 2)
       word_in_table = self.getWord(addr_to_check)
       if scan_value == word_in_table:
-        self.setVariable(instruction.store_variable, addr_to_check)
+        addr_value = addr_to_check
         word_found = True
         break
 
     self.pc += instruction.instr_length
+    self.setVariable(instruction.store_variable, addr_value)
     self.handleJumpDestination(word_found, instruction)
-    return
 
   def call(self, instruction):
     printLog("Routine call during run")
@@ -1682,6 +1697,12 @@ class Memory:
       self.pc = self.unpackAddress(self.getWord(0x06), True)
     printLog(self.pc)
 
+  def getBytes(self, addr, count):
+    num = 0
+    for i in range(count):
+      num += self.mem[addr + i] << (i*8)
+    return num
+
   # Most numbers are stored as two adjacent bytes
   def getWord(self, addr):
     return (self.mem[addr] << 8) + self.mem[addr+1]
@@ -1848,6 +1869,15 @@ class Memory:
     full_flags = (first_two_attribute_bytes << 16) + last_two_attribute_bytes
     return (attrib_bit & full_flags) == attrib_bit
 
+  def isAttributeSetV4(self, obj_number, attrib_number):
+    obj_addr = self.getObjectAddress(obj_number)
+    attrib_bit = 0x800000000000 >> (attrib_number)
+    first_two_attribute_bytes = self.getWord(obj_addr)
+    middle_two_attribute_bytes = self.getWord(obj_addr+2)
+    last_two_attribute_bytes = self.getWord(obj_addr+4)
+    full_flags = (first_two_attribute_bytes << 32) + (middle_two_attribute_bytes << 16) + last_two_attribute_bytes
+    return (attrib_bit & full_flags) == attrib_bit
+
   def setAttribute(self, obj_number, attrib_number, value):
     if self.version < 4:
       return self.setAttributeV1(obj_number, attrib_number, value)
@@ -1885,15 +1915,6 @@ class Memory:
 
     return
 
-  def isAttributeSetV4(self, obj_number, attrib_number):
-    obj_addr = self.getObjectAddress(obj_number)
-    attrib_bit = 0x800000000000 >> (attrib_number)
-    first_two_attribute_bytes = self.getWord(obj_addr)
-    middle_two_attribute_bytes = self.getWord(obj_addr+2)
-    last_two_attribute_bytes = self.getWord(obj_addr+4)
-    full_flags = (first_two_attribute_bytes << 32) + (middle_two_attribute_bytes << 16) + last_two_attribute_bytes
-    return (attrib_bit & full_flags) == attrib_bit
-
   def setAttributeV4(self, obj_number, attrib_number, value):
     printLog("setAttribute", obj_number, attrib_number, value)
     obj_addr = self.getObjectAddress(obj_number)
@@ -1905,7 +1926,7 @@ class Memory:
       full_flags |= attrib_bit
     else:
       printLog("Setting", attrib_number, "on", obj_number, "to False")
-      attrib_bit = 0xffffffff
+      attrib_bit = 0xffffffffffff
       attrib_bit -= (0x800000000000 >> attrib_number)
       full_flags &= attrib_bit
     printLog(bin(full_flags))
@@ -1922,6 +1943,10 @@ class Memory:
     self.mem[obj_addr+3] = byte_4
     self.mem[obj_addr+4] = byte_5
     self.mem[obj_addr+5] = byte_6
+
+    # DEBUG - Validate
+    if (self.isAttributeSet(obj_number, attrib_number) != value):
+      raise Exception("Failure setting attribute")
 
   def getObjectRelationshipsAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
@@ -2016,7 +2041,7 @@ class Memory:
   def getPropertyTableAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
     printLog("obj_addr", hex(obj_addr))
-    prop_table_offset = 7
+    prop_table_offset = 7 # 4 bytes to attribute, 3 bytes of relationships
     if (self.version > 3):
       prop_table_offset = 12 # 6 bytes of attribute, 3 words of relationships
     prop_table_address = self.getWord(obj_addr + prop_table_offset)
@@ -2054,7 +2079,7 @@ class Memory:
       if (prop_number == cur_prop_number):
         printLog("Prop addr: found prop at:", hex(size_byte_addr))
         return size_byte_addr
-      printLog("Prop addr: wasn't it, skipping bytes:", prop_bytes)
+      printLog("Prop addr: wasn't it, skipping bytes:", prop_bytes + skip_bytes)
       # Get the next property
       size_byte_addr += (prop_bytes + skip_bytes) # move past size byte + prop bytes
       size_byte = self.getSmallNumber(size_byte_addr)
@@ -2068,6 +2093,26 @@ class Memory:
       return self.getPropertySizeV1(prop_address)
     else:
       return self.getPropertySizeV4(prop_address)
+
+  def getPropertySizeFromOneByte(self, prop_address):
+    if self.version < 4:
+      return self.getPropertySizeV1(prop_address)[0]
+    else:
+      size_byte_addr = prop_address
+      size_byte = self.getSmallNumber(size_byte_addr)
+      if ((size_byte & 0b10000000) >> 7) == 1:
+        # This is the second size byte, so take the bottom six bits.
+        prop_bytes = (size_byte & 0b00111111)
+        if prop_bytes == 0:
+          prop_bytes = 64
+      else:
+        # This is the first size byte, so the sixth bit determines the
+        # number of bytes.
+        if ((size_byte & 0b01000000) >> 6) == 1:
+          prop_bytes = 2
+        else:
+          prop_bytes = 1
+    return prop_bytes
 
   def getPropertySizeV1(self, prop_address):
     size_byte_addr = prop_address
@@ -2434,6 +2479,7 @@ class Memory:
         self.stream = loaded_file.stream
         self.active_output_streams = loaded_file.active_output_streams
         self.pc = loaded_file.pc
+        self.restoring = True
         printLog("post-load:  self.pc", self.pc)
         return 2
     except FileNotFoundError:
