@@ -113,6 +113,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Split Memory into multiple classes
 - Lots of mixing of underscore variable names + camelcase
 - getOpcode needs tidying - mixes decimal with hex
+- isAttributeSet/setAttribute needs tidying up
 
 ## Architecture / To Do
 - Screen model
@@ -134,7 +135,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - sread (v4 - adds time + callback interrupt)
 - erase_line
 - get_cursor
-- set_text_style - Fixed Pitch
+- set\_text\_style - Fixed Pitch
 - read_char (time + callback interrupt)
 - scan_table
 - output_stream (REDIRECT)

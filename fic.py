@@ -255,8 +255,12 @@ class Memory:
 
     # Load 'em up!
     for i in range(num_entries):
-      word_1, word_2 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2)
-      self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
+      if self.version < 4:
+        word_1, word_2 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2)
+        self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
+      else:
+        word_1, word_2, word_3 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2), self.getWord(dict_addr + byte + 4)
+        self.dictionary_mapping[(word_1 << 32) + (word_2 << 16) + word_3] = dict_addr + byte
       byte += entry_size
 
   # Input shenaningans
@@ -302,7 +306,10 @@ class Memory:
     for idx, token in enumerate(tokens):
       eff_idx = idx*4
       byte_encoding = self.tokenToDictionaryLookup(token)
-      key = ((byte_encoding[0] << 24) + (byte_encoding[1] << 16) + (byte_encoding[2] << 8) + (byte_encoding[3]))
+      if self.version < 4:
+        key = ((byte_encoding[0] << 24) + (byte_encoding[1] << 16) + (byte_encoding[2] << 8) + (byte_encoding[3]))
+      else:
+        key = ((byte_encoding[0] << 40) + (byte_encoding[1] << 32) + (byte_encoding[2] << 24) + (byte_encoding[3] << 16) + (byte_encoding[4] << 8) + (byte_encoding[5]))
       # Give addr of word in dict or 0 if not found (2 bytes)
       if key in self.dictionary_mapping:
         byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
@@ -326,9 +333,10 @@ class Memory:
       trunc_length = 9
     string = string[0:trunc_length]
     # Encode it
-    return self.stringToEncodedBytes(string, trunc_length)
+    return self.stringToEncodedBytes(string)
 
-  def stringToEncodedBytes(self, string, min_length=0):
+  def stringToEncodedBytes(self, string):
+    min_length = 4 if self.version < 4 else 9
     zbytes = []
     cur_zbyte = 0
     characters_left = 3
@@ -358,7 +366,7 @@ class Memory:
 
     # Ensure we generate two words by padding if necessary...
     # But not too much padding!
-    while len(byte_list) < 4 or (len(byte_list) % 3 != 0):
+    while len(byte_list) < min_length or (len(byte_list) % 3 != 0):
       byte_list.append('00101') # 5
 
     printLog("stringToEncode, string, bytes", string, byte_list)
@@ -583,7 +591,7 @@ class Memory:
   def handleInput(self, length):
     y, x = stdscr.getyx()
     maxy, maxx = stdscr.getmaxyx()
-    length = min(length, maxx-2) # Not exactly conforming to standard here...
+    length = min(length, maxx - x - 2) # Not exactly conforming to standard here...
     inputWin = stdscr.subwin(1, length, y, x)
     tb = curses.textpad.Textbox(inputWin)
     text = tb.edit()
@@ -1479,7 +1487,6 @@ class Memory:
 
   def quit(self, instruction):
     printLog("quit")
-    curses.endwin()
     quit()
 
   def eraseWindow(self, window):
@@ -1785,6 +1792,12 @@ class Memory:
     return self.getEncodedTextLiteral(prop_addr+1)[0]
 
   def isAttributeSet(self, obj_number, attrib_number):
+    if self.version < 4:
+      return self.isAttributeSetV1(obj_number, attrib_number)
+    else:
+      return self.isAttributeSetV4(obj_number, attrib_number)
+
+  def isAttributeSetV1(self, obj_number, attrib_number):
     obj_addr = self.getObjectAddress(obj_number)
     attrib_bit = 0x80000000 >> (attrib_number)
     first_two_attribute_bytes = self.getWord(obj_addr)
@@ -1793,6 +1806,12 @@ class Memory:
     return (attrib_bit & full_flags) == attrib_bit
 
   def setAttribute(self, obj_number, attrib_number, value):
+    if self.version < 4:
+      return self.setAttributeV1(obj_number, attrib_number, value)
+    else:
+      return self.setAttributeV4(obj_number, attrib_number, value)
+
+  def setAttributeV1(self, obj_number, attrib_number, value):
     printLog("setAttribute", obj_number, attrib_number, value)
     obj_addr = self.getObjectAddress(obj_number)
     full_flags = (self.getWord(obj_addr) << 16) + self.getWord(obj_addr+2)
@@ -1822,6 +1841,44 @@ class Memory:
       raise Exception("Failure setting attribute")
 
     return
+
+  def isAttributeSetV4(self, obj_number, attrib_number):
+    obj_addr = self.getObjectAddress(obj_number)
+    attrib_bit = 0x800000000000 >> (attrib_number)
+    first_two_attribute_bytes = self.getWord(obj_addr)
+    middle_two_attribute_bytes = self.getWord(obj_addr+2)
+    last_two_attribute_bytes = self.getWord(obj_addr+4)
+    full_flags = (first_two_attribute_bytes << 32) + (middle_two_attribute_bytes << 16) + last_two_attribute_bytes
+    return (attrib_bit & full_flags) == attrib_bit
+
+  def setAttributeV4(self, obj_number, attrib_number, value):
+    printLog("setAttribute", obj_number, attrib_number, value)
+    obj_addr = self.getObjectAddress(obj_number)
+    full_flags = (self.getWord(obj_addr) << 32) + (self.getWord(obj_addr+2) << 16) + self.getWord(obj_addr+4)
+    printLog(bin(full_flags))
+    if (value):
+      printLog("Setting", attrib_number, "on", obj_number, "to True")
+      attrib_bit = 0x800000000000 >> attrib_number
+      full_flags |= attrib_bit
+    else:
+      printLog("Setting", attrib_number, "on", obj_number, "to False")
+      attrib_bit = 0xffffffff
+      attrib_bit -= (0x800000000000 >> attrib_number)
+      full_flags &= attrib_bit
+    printLog(bin(full_flags))
+    word_1 = full_flags >> 32
+    word_2 = (full_flags & 0xffff0000) >> 16
+    word_3 = full_flags & 0x0000ffff
+    byte_1, byte_2 = self.breakWord(word_1)
+    byte_3, byte_4 = self.breakWord(word_2)
+    byte_5, byte_6 = self.breakWord(word_3)
+
+    self.mem[obj_addr] = byte_1
+    self.mem[obj_addr+1] = byte_2
+    self.mem[obj_addr+2] = byte_3
+    self.mem[obj_addr+3] = byte_4
+    self.mem[obj_addr+4] = byte_5
+    self.mem[obj_addr+5] = byte_6
 
   def getObjectRelationshipsAddress(self, obj_number):
     obj_addr = self.getObjectAddress(obj_number)
