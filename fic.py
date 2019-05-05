@@ -1446,7 +1446,6 @@ class Memory:
     self.pc += instruction.instr_length # Move past the instr
 
   def not_1(self, instruction):
-    self.pc += instruction.instr_length # Move past the instr regardless
     printLog("not")
     decoded_opers  = self.decodeOperands(instruction)
     value = decoded_opers[0]
@@ -1633,8 +1632,8 @@ class Memory:
     # How many local variables?
     local_var_count = self.getSmallNumber(routine_address)
     printLog("Total local variables: " + str(local_var_count))
-    # For older versions, we have initial values for these variables
-    # Newer versions use zero instead
+    # For versions 1-4, we have initial values for these variables
+    # Versions 5+ use zero instead
     for i in range(local_var_count):
       if (self.version < 5):
         variable_value = self.getWord(routine_address + 1 + (2*i))
@@ -2581,8 +2580,6 @@ class Memory:
       return "read_char", self.read_char
     if (operand_type == Operand.VAR and byte == 255):
       return "check_arg_count", self.check_arg_count
-    if (operand_type == Operand.VAR and byte == 248):
-      return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
       return "read", self.read
     raise Exception("Missing opcode: " + hex(byte))
