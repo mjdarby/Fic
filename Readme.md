@@ -21,6 +21,8 @@ Please open a Github issue with a screenshot/copy-paste of the bug you've encoun
 ## Contributing
 If you want to contribute to Fic development, please feel free to raise a pull request! We'll work out the guidelines for this as we go along. Fic is licensed under GPLv3, so any contributions made will also fall under this license.
 
+It's a pain to integration test this stuff, but I recently discovered the joys of CZECH by Amir Karger - so the first little rule we could have is that you run the CZECH suite against v3 + v4 and make sure the score/output you get isn't worse than what we started with. You can find the suite [here](https://www.ifarchive.org/indexes/if-archive/infocom/interpreters/tools/). You'll need to install Inform, but otherwise the Readme is self-explanatory.
+
 # Technical stuff
 ## Dones
 ### Opcodes implemented
@@ -115,6 +117,8 @@ If you want to contribute to Fic development, please feel free to raise a pull r
 - Introduce proper sys args stuff, kill the last of the easy-to-see exceptions
   - Give the user lots of cool options
 - Implement Queztal save files - if only because the save fil format for Fic will break constantly as opcodes demand memory structure changes
+- Unit tests for each opcode
+- Full game run tests using replays (only confirm that we reach the end of the game, not that the display is correct)
 
 ### Refactor
 - Split Memory into multiple classes

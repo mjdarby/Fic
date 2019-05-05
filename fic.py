@@ -10,6 +10,7 @@ import re
 import os
 import ctypes
 import struct
+import math
 import curses
 import curses.textpad
 from enum import Enum
@@ -47,6 +48,7 @@ commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
 LOGPRINT = False
+CZECH_MODE = False
 
 MAX_SAVE_FILE_LENGTH = 20
 
@@ -237,6 +239,7 @@ class Memory:
     self.text_italic = False
     self.text_fixed_pitch = False
     self.restoring = False
+    self.readRanOnce = False # Necessary to avoid z3 status bar print before 'read'
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -688,6 +691,8 @@ class Memory:
 
   def read(self, instruction):
     printLog("read")
+    if self.version == 3:
+      self.readRanOnce = True
     # Flush the buffer - seems like a good time for it?
     self.drawWindows()
 
@@ -1445,9 +1450,9 @@ class Memory:
     printLog("not")
     decoded_opers  = self.decodeOperands(instruction)
     value = decoded_opers[0]
-    value = ~value
+    value = ~value & 0xffff
 
-    self.setVariable(instruction.store_variable, not_value)
+    self.setVariable(instruction.store_variable, value)
     self.pc += instruction.instr_length # Move past the instr regardless
 
   def add(self, instruction):
@@ -1524,7 +1529,13 @@ class Memory:
     printLog("div")
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
-    val = decoded_opers[0] // decoded_opers[1]
+    val = (decoded_opers[0] / decoded_opers[1])
+
+    # CZECH: Work towards zero - floor if above 0, ceil if below
+    if val > 0:
+      val = math.floor(val)
+    else:
+      val = math.ceil(val)
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
 
@@ -1537,7 +1548,20 @@ class Memory:
     printLog("mod")
     decoded_opers = self.decodeOperands(instruction)
     decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
-    val = decoded_opers[0] % decoded_opers[1]
+
+    # CZECH: mod in Python doesn't work the way the Z-Machine thinks
+    #        it should. Do it manually by doing a Z-Machine divide
+    #        as described in 'div' and then multiply by divisor
+    #        and subtract the result from the dividend.
+    val = decoded_opers[0] / decoded_opers[1]
+    if val > 0:
+      val = math.floor(val)
+    else:
+      val = math.ceil(val)
+
+    val = val * decoded_opers[1]
+    val = decoded_opers[0] - val
+
     val = getHexValue(val)
     self.setVariable(instruction.store_variable, val)
 
@@ -2826,7 +2850,7 @@ class Memory:
     self.mem[0x27] = 1
 
   def drawWindows(self):
-    if self.version < 4:
+    if self.version < 4 and self.readRanOnce:
       self.drawStatusLine()
     self.setScreenDimensions()
     self.refreshWindows()
@@ -2937,6 +2961,9 @@ def loop(main_memory):
   instr = main_memory.getInstruction(main_memory.pc)
   instr.print_debug()
   instr.run(main_memory)
+  if CZECH_MODE:
+    # If running in Czech mode, we will flush output after EVERY command
+    main_memory.drawWindows()
 
 if __name__ == "__main__":
   try:
