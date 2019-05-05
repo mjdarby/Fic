@@ -2,7 +2,6 @@
 
 import pickle
 import traceback
-import readchar
 import sys
 import random
 import time
@@ -220,6 +219,7 @@ class Memory:
     self.transcript = ""
     self.getFirstAddress()
     self.setFlags()
+    self.setScreenDimensions()
     self.setInterpreterNumberVersion(6, ord('I'))
     self.active_output_streams = [1]
     self.stream = ""
@@ -267,20 +267,41 @@ class Memory:
       self.mem[0x01] = flags
       printLog("flags set: " + bin(self.mem[0x01]))
     else:
-      pass # TODO, version 4+
+      # All of these are 0 = Unavailable, 1 = Available)
+      # Bit 0: Colours?
+      flags = setNthBit(flags, 0, True) # Probably? TODO: Should actually use Curses to check this
+      # Bit 1: Picture display?
+      flags = setNthBit(flags, 1, False) # Nah. Probably never.
+      # Bit 2: Boldface?
+      flags = setNthBit(flags, 2, True) # Yup.
+      # Bit 3: Italic?
+      flags = setNthBit(flags, 3, True) # Yeah.
+      # Bit 4: Fixed-pitch?
+      flags = setNthBit(flags, 4, True) # Probably the only font we have!
+      # Bit 5: Sound effects?
+      flags = setNthBit(flags, 5, False) # Not yet.
+      # Bit 7: Timed keyboard input?
+      flags = setNthBit(flags, 7, False) # Not yet. Think Border Zone requires it.
+      self.mem[0x01] = flags
+      printLog("flags set: " + bin(self.mem[0x01]))
 
     # Flags 2 - specific availability/current status
-    # Bit 0: Set when transcripting is enabled (don't care during initialisation)
-    # Bit 1: Game requests fixed-pitch printing
-    # Bit 2: Interpreter sets to request screen redraw (don't care during initialisation)
-    # Bit 3: Game wants to use pictures
-    # Bit 4: Game wants to use UNDO opcodes
-    # Bit 5: Game wants to use a mouse
-    # Bit 6: Game wants to use colours
-    # Bit 8: Game wants to use sounds
-    # Bit 6: Game wants to use menus
     flags = self.mem[0x10]
-    # TODO: When we reach v5+ we need to start doing something with this
+    # Bits 0-3 are dynamically set
+    # Bit 3: Game wants to use pictures
+    flags = setNthBit(flags, 3, False) # No can do, my friend.
+    # Bit 4: Game wants to use UNDO opcodes
+    flags = setNthBit(flags, 4, False) # Not yet..
+    # Bit 5: Game wants to use a mouse
+    flags = setNthBit(flags, 5, False) # Not yet..
+    # Bit 6: Game wants to use colours
+    flags = setNthBit(flags, 6, True) # Sure! Probably! Need to use Curses to determine terminal capability
+    # Bit 7: Game wants to use sounds
+    flags = setNthBit(flags, 7, False) # Not yet...
+    # Bit 8: Game wants to use menus
+    flags = setNthBit(flags, 8, False) # No - and we probably won't ever support v6 anyway.
+    self.mem[0x10] = flags
+
 
   # read dictionary
   def readDictionary(self):
@@ -2792,6 +2813,17 @@ class Memory:
     y, x = stdscr.getmaxyx()
     self.mem[0x20] = y
     self.mem[0x21] = x
+    # Specifically for fixed-width terminals
+    # all dimensions are '1'. So the screen
+    # width/height are equal to the 1*height/width.
+    # Screen width
+    self.mem[0x22] = x
+    # Screen height
+    self.mem[0x24] = y
+    # Font width/height (swapped between v5/v6, but
+    # in our case it's the same so we don't care)
+    self.mem[0x26] = 1
+    self.mem[0x27] = 1
 
   def drawWindows(self):
     if self.version < 4:
