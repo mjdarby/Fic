@@ -646,12 +646,8 @@ class Memory:
       routine = decoded_opers[2]
       raise Exception("read_char with callback - not implemented")
 
-    # TODO: Stuff with time/routine
+    string = stdscr.getch()
 
-    string = stdscr.getkey()
-
-    self.printToCommandStream(string, '\n')
-    self.printToStream(string, '\n')
     self.setVariable(instruction.store_variable, string)
 
     self.pc += instruction.instr_length

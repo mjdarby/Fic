@@ -132,9 +132,8 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 
 ## Opcodes remaining for v4
 - sread (v4 - adds time + callback interrupt)
-- set\_text\_style - Fixed Pitch
 - read_char (time + callback interrupt)
-- output_stream (REDIRECT)
+- set\_text\_style - Fixed Pitch
 
 ## Opcodes remaining for v4 - but unused in Infocom until v6
 - erase_line
@@ -162,7 +161,7 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - save_undo
 - restore_undo
 
-## Opcodes remaining for v6 - Extension
+## Opcodes remaining for v5 - Extension
 - print_unicode
 - check_unicode
 - set_true_colour
