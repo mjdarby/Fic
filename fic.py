@@ -479,11 +479,17 @@ class Memory:
         current_alphabet = self.printZCharacterV3(second_char, current_alphabet)
         current_alphabet = self.printZCharacterV3(third_char, current_alphabet)
 
+    # Nasty consequence of how we deal with ten-bit ZSCII (we only print it
+    # if we're printing another character after it)... so we have to deal
+    # with a special case here.
+    if self.ten_bit_zscii_bytes_needed == 0:
+      self.print_zscii_character(self.ten_bit_zscii_bytes)
+
     # If we ended up with an incomplete double-byte, throw it away (just in case)
     self.ten_bit_zscii_bytes_needed = None
+
     # Version 1/2: Throw away the lock alphabet we just used
     self.lock_alphabets.pop()
-
 
   def printZCharacterV1(self, key, current_alphabet):
     # Handle ten-bit ZSCII
@@ -618,13 +624,21 @@ class Memory:
 
   def getZsciiCharacter(self, idx):
     # Returns valid output characters (TODO: missing v6 + extra chars)
+    # CHECK: If we receive a character outside of the range,
+    #        log something and print nothing.
+    #        This is to get around the fact that some games call
+    #        read_char (which takes input-only characters)
+    #        and then tries to print them.
 
     if idx  == 13: # Newline
       return '\n'
 
-    table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
-    target_character = table[idx-0x20] # idx starts at 0x20 for ' ', so offset
-    return target_character
+    if idx >= 32 and idx < 127: # Regular ASCII
+      target_character = chr(idx)
+      return target_character
+
+    printLog("getZsciiCharacter: Unsupported ZSCII in operand:", idx)
+    return ''
 
   def print_zscii_character(self, character):
     target_character = self.getZsciiCharacter(character)
