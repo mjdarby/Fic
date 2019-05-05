@@ -61,6 +61,53 @@ def printLog(*string):
   if LOGPRINT:
     print(string, file=logfile)
 
+def cursesKeyToZscii(cstring):
+  if cstring == 'KEY_DC':
+    return 8
+  if cstring == 'KEY_BACKSPACE':
+    return 8
+  if cstring == '\n':
+    return 13
+  if cstring == '^[':
+    return 27
+  if cstring == 'KEY_UP':
+    return 129
+  if cstring == 'KEY_DOWN':
+    return 130
+  if cstring == 'KEY_LEFT':
+    return 131
+  if cstring == 'KEY_RIGHT':
+    return 132
+  if cstring == 'KEY_F(1)':
+    return 133
+  if cstring == 'KEY_F(2)':
+    return 134
+  if cstring == 'KEY_F(3)':
+    return 135
+  if cstring == 'KEY_F(4)':
+    return 136
+  if cstring == 'KEY_F(5)':
+    return 137
+  if cstring == 'KEY_F(6)':
+    return 138
+  if cstring == 'KEY_F(7)':
+    return 139
+  if cstring == 'KEY_F(8)':
+    return 140
+  if cstring == 'KEY_F(9)':
+    return 141
+  if cstring == 'KEY_F(10)':
+    return 142
+  if cstring == 'KEY_F(11)':
+    return 143
+  if cstring == 'KEY_F(12)':
+    return 144
+  # Numpad support would go here, except Curses can't differentiate between
+  # numpad keys and the regular arrow keys. Stick with numlock.
+  if cstring in " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_'abcdefghijklmnopqrstuvwxyz{|}~":
+    return ord(cstring)
+  return 0
+
 # Instruction
 class Instruction:
   def __init__(self,
@@ -570,6 +617,11 @@ class Memory:
     self.printToStream(str(number), '')
 
   def getZsciiCharacter(self, idx):
+    # Returns valid output characters (TODO: missing v6 + extra chars)
+
+    if idx  == 13: # Newline
+      return '\n'
+
     table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_'abcdefghijklmnopqrstuvwxyz{|}~"
     target_character = table[idx-0x20] # idx starts at 0x20 for ' ', so offset
     return target_character
@@ -612,7 +664,6 @@ class Memory:
       routine = decoded_opers[3]
       raise Exception("read with callback - not implemented")
 
-
     maxLen = self.getTextBufferLength(text_buffer_address)
     if (self.active_input_stream == 0):
       string = self.handleInput(maxLen)
@@ -646,9 +697,12 @@ class Memory:
       routine = decoded_opers[2]
       raise Exception("read_char with callback - not implemented")
 
-    string = stdscr.getch()
+    ch_val = 0
+    while ch_val == 0: # Only read valid ZSCII characters, discard all else
+      string = stdscr.getkey()
+      ch_val = cursesKeyToZscii(string)
 
-    self.setVariable(instruction.store_variable, string)
+    self.setVariable(instruction.store_variable, ch_val)
 
     self.pc += instruction.instr_length
 
@@ -1531,11 +1585,11 @@ class Memory:
   def eraseWindow(self, window):
     maxy, maxx = stdscr.getmaxyx()
     if window == 0:
-      stdscr.addstr(self.topWinRows + 1, 0, ' ' * maxx * (maxy-self.topWinRows))
+      stdscr.addstr(self.topWinRows, 0, ' ' * maxx * (maxy-self.topWinRows))
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
-        self.bottomWinCursor = (self.topWinRows + 1, 0)
+        self.bottomWinCursor = (self.topWinRows, 0)
     if window == 1:
       stdscr.addstr(1, 0, ' ' * maxx * (self.topWinRows))
       self.topWinCursor = (0, 0)
@@ -1545,17 +1599,20 @@ class Memory:
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
-        self.bottomWinCursor = (self.topWinRows + 1, 0)
+        self.bottomWinCursor = (self.topWinRows, 0)
       self.topWinCursor = (0, 0)
     if window == -2:
       stdscr.addstr(1, 0, ' ' * maxx * maxy)
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
-        self.bottomWinCursor = (self.topWinRows + 1, 0)
+        self.bottomWinCursor = (self.topWinRows, 0)
       self.topWinCursor = (0, 0)
 
   def splitWindow(self, rows):
+    # Lots of annoying offset logic depending on if there's
+    # a status line (<V4) or not.
+
     self.topWinRows = rows
 
     # Store cursor
@@ -1570,18 +1627,22 @@ class Memory:
                              # in the scrollable area for the call to
                              # succeed. Not needed when tested on
                              # Linux.
-      stdscr.setscrreg(rows+1, maxy-1)
+      if self.version < 4:
+        stdscr.setscrreg(rows+1, maxy-1)
+      else:
+        stdscr.setscrreg(rows, maxy-1)
     else:
       pass # The whole screen is the upper window
 
     if rows == 0:
       return
 
-    if self.version == 3:
+    if self.version < 4:
       # Clear the window
-      stdscr.addstr(1, 0, ' '*maxx * rows)
-
-    self.topWinCursor = (1,0)
+      stdscr.addstr(1, 0, ' ' *maxx * rows)
+      self.topWinCursor = (1,0)
+    else:
+      self.topWinCursor = (0,0)
     stdscr.move(y,x)
 
     # The spec implies that you need to have the bottom window
@@ -1600,7 +1661,10 @@ class Memory:
 
     # Always reset top cursor for top window selection
     if window == 1:
-      self.topWinCursor = (1,0)
+      if (self.version < 4): # Status line...
+        self.topWinCursor = (1,0)
+      else:
+        self.topWinCursor = (0,0)
 
   def decodeOperands(self, instruction):
     oper_zip = zip(instruction.operand_types, instruction.operands)
@@ -2558,8 +2622,9 @@ class Memory:
       # Remember there's an offset for the bottom window
       self.bottomWinCursor = (self.topWinRows + line, column)
     elif self.targetWindow == 1:
-      # There's an offset for the bottom one too...
-      self.topWinCursor = (line + 1, column)
+      # No offset for the top one, we've already
+      # converted to Curses co-ordinates
+      self.topWinCursor = (line, column)
 
   def setInputStream(self, stream):
     self.active_input_stream = stream
@@ -2629,6 +2694,11 @@ class Memory:
       self.stream += string + end
 
   def refreshWindows(self):
+    if (self.targetWindow == 0):
+      y, x = self.bottomWinCursor
+    elif (self.targetWindow == 1):
+      y, x = self.topWinCursor
+    stdscr.move(y, x)
     stdscr.refresh()
 
   def setScreenDimensions(self):
