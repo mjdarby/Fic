@@ -22,7 +22,7 @@ OperandType = Enum('OperandType', 'Large Small Variable')
 Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
-NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table"]
+NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table", "piracy", "check_arg_count"]
 NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4"]
 NeedTextLiteral = ["print","print_ret"]
 
@@ -161,6 +161,7 @@ class RoutineCall:
     self.local_variables = []
     self.stack_state = []
     self.stack = []
+    self.called_arg_count = 0
     self.return_address = 0x0000
 
   def print_debug(self):
@@ -720,6 +721,14 @@ class Memory:
 
     self.pc += instruction.instr_length
 
+  def check_arg_count(self, instruction):
+    printLog("check_arg_count")
+    decoded_opers  = self.decodeOperands(instruction)
+    arg_to_check = decoded_opers[0]
+    arg_passed = self.checkArgCount(arg_to_check)
+    self.pc += instruction.instr_length
+    self.handleJumpDestination(arg_passed, instruction)
+
   def set_attr(self, instruction):
     printLog("set_attr")
     decoded_opers  = self.decodeOperands(instruction)
@@ -795,6 +804,13 @@ class Memory:
     self.bufferText = decoded_opers[0] == 1
     self.pc += instruction.instr_length
 
+  def erase_line(self, instruction):
+    printLog("erase_line_cursor")
+    decoded_opers  = self.decodeOperands(instruction)
+    pixels = decoded_opers[0]
+    self.eraseLine(pixels)
+    self.pc += instruction.instr_length
+
   def set_cursor(self, instruction):
     printLog("set_cursor")
     decoded_opers  = self.decodeOperands(instruction)
@@ -802,6 +818,13 @@ class Memory:
     column = decoded_opers[1]
     # Curses starts at 0,0, Z-Machine starts at 1,1
     self.setCursor(line-1, column-1)
+    self.pc += instruction.instr_length
+
+  def get_cursor(self, instruction):
+    printLog("get_cursor")
+    decoded_opers  = self.decodeOperands(instruction)
+    array = decoded_opers[0]
+    self.getCursor(array)
     self.pc += instruction.instr_length
 
   def input_stream(self, instruction):
@@ -1089,6 +1112,15 @@ class Memory:
     # kick execution home - stack is scope limited to the routine so no need to
     # do anything with it.
     self.pc = current_routine.return_address
+
+  def piracy(self, instruction):
+    printLog("piracy")
+    decoded_opers  = self.decodeOperands(instruction)
+    # By the power of Truth, I, while living, have discerned this
+    # software to be genuine!
+    arcane_truth = True
+    self.pc += instruction.instr_length
+    self.handleJumpDestination(arcane_truth, instruction)
 
   def jin(self, instruction):
     printLog("jin")
@@ -1573,6 +1605,7 @@ class Memory:
       if index >= len(new_routine.local_variables):
         break
       new_routine.local_variables[index] = operand
+    new_routine.called_arg_count = len(decoded_opers)
 
     printLog("Locals after operand set", new_routine.local_variables)
 
@@ -1580,9 +1613,13 @@ class Memory:
     printLog(new_routine.local_variables)
 
     # Now set the pc to the instruction after the header
+    # and default local variables
     new_pc = routine_address + 1
+
+    # Version 5+ doesn't have these local variables
     if (self.version < 5):
       new_pc += 2 * local_var_count
+
     printLog("Next instruction at: " + hex(new_pc))
     self.pc = new_pc
 
@@ -1954,6 +1991,9 @@ class Memory:
     last_two_attribute_bytes = self.getWord(obj_addr+4)
     full_flags = (first_two_attribute_bytes << 32) + (middle_two_attribute_bytes << 16) + last_two_attribute_bytes
     return (attrib_bit & full_flags) == attrib_bit
+
+  def checkArgCount(self, arg_number):
+    return arg_number <= self.routine_callstack[-1].called_arg_count
 
   def setAttribute(self, obj_number, attrib_number, value):
     if self.version < 4:
@@ -2440,6 +2480,8 @@ class Memory:
       return "show_status", self.show_status
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
       return "verify", self.verify
+    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xf):
+      return "piracy", self.piracy
     if (operand_type == Operand.VAR and byte == 224):
         return "call", self.call
     if (operand_type == Operand.VAR and byte == 230):
@@ -2448,8 +2490,12 @@ class Memory:
       return "random", self.random
     if (operand_type == Operand.VAR and byte == 236):
       return "call_vs2", self.call
+    if (operand_type == Operand.VAR and byte == 238):
+      return "erase_line", self.erase_line
     if (operand_type == Operand.VAR and byte == 239):
       return "set_cursor", self.set_cursor
+    if (operand_type == Operand.VAR and byte == 240):
+      return "get_cursor", self.get_cursor
     if (operand_type == Operand.VAR and byte == 237):
       return "erase_window", self.erase_window
     if (operand_type == Operand.VAR and byte == 242):
@@ -2458,6 +2504,8 @@ class Memory:
       return "set_text_style", self.set_text_style
     if (operand_type == Operand.VAR and byte == 247):
       return "scan_table", self.scan_table
+    if (operand_type == Operand.VAR and byte == 248):
+      return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 249):
       return "call_vn", self.call
     if (operand_type == Operand.VAR and byte == 250):
@@ -2486,6 +2534,8 @@ class Memory:
       return "sound_effect", self.sound_effect
     if (operand_type == Operand.VAR and byte == 246):
       return "read_char", self.read_char
+    if (operand_type == Operand.VAR and byte == 255):
+      return "check_arg_count", self.check_arg_count
     if (operand_type == Operand.VAR and byte == 248):
       return "not", self.not_1
     if (operand_type == Operand.VAR and byte == 228):
@@ -2631,6 +2681,12 @@ class Memory:
     if textStyle == 8:
       self.text_fixed_pitch = True
 
+  def eraseLine(self, pixels):
+    if self.version == 6:
+      raise Exception("Not implemented")
+    elif pixels == 1: # Only do anything for v4/5 if pixels is one
+      stdscr.clrtoeol() # Loving the curses specific code...
+
   def setCursor(self, line, column):
     if self.targetWindow == 0:
       # Remember there's an offset for the bottom window
@@ -2639,6 +2695,23 @@ class Memory:
       # No offset for the top one, we've already
       # converted to Curses co-ordinates
       self.topWinCursor = (line, column)
+
+  def getCursor(self, array):
+    currentCursor = (0,0)
+    if self.targetWindow == 0:
+      currentCursor = self.bottomWinCursor
+    elif self.targetWindow == 1:
+      currentCursor = self.topWinCursor
+    # Curses -> Z-Machine conversion = offset by one
+    row = currentCursor[0] + 1
+    column = currentCursor[1] + 1
+    # Assumption: You can have > 255 rows or columns
+    row_byte1, row_byte2 = self.breakWord(row)
+    column_byte1, column_byte2 = self.breakWord(column)
+    self.mem[array] = row_byte1
+    self.mem[array+1] = row_byte2
+    self.mem[array+2] = column_byte1
+    self.mem[array+3] = column_byte2
 
   def setInputStream(self, stream):
     self.active_input_stream = stream

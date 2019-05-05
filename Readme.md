@@ -37,12 +37,15 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - call_vn
 - call_vn2
 - call_vs2
+- check\_arg\_count
 - clear_attr
 - dec
 - dec_chk
 - div
+- erase_line
 - erase_window
 - get_child
+- get_cursor
 - get\_next_prop
 - get_parent
 - get_prop
@@ -67,8 +70,10 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - new_line
 - nop
 - not
+- not (v5) - instruction moved
 - or
 - output_stream
+- piracy
 - print
 - print_addr
 - print_char
@@ -115,6 +120,8 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
 - Lots of mixing of underscore variable names + camelcase
 - getOpcode needs tidying - mixes decimal with hex
 - isAttributeSet/setAttribute needs tidying up
+- Split rendering logic out into entirely separate class and loop
+  - Preparation for creating GUI client
 
 ## Architecture / To Do
 - Screen model
@@ -128,38 +135,31 @@ Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in
   - True random
 
 ## Opcodes remaining for v3 in general
-- sound_effect (for Lurking Horror only)
+- sound_effect (for Lurking Horror only) (currently dummied)
 
 ## Opcodes remaining for v4
 - sread (v4 - adds time + callback interrupt)
 - read_char (time + callback interrupt)
-- set\_text\_style - Fixed Pitch
+- set\_text\_style - Fixed Pitch..? This is a terminal application, so we don't really get a choice
 
-## Opcodes remaining for v4 - but unused in Infocom until v6
-- erase_line
-- get_cursor
-
-## Opcodes remaining for v5
+## Opcodes remaining for v5 - ordered by perceived difficulty
+- set_font - only because we don't have a choice in the terminal
 - set_colour
-- throw
-- save (v5, becomes EXT)
-- restore (v5, becomes EXT)
-- catch
-- piracy
-- aread (v5)
-- output_stream (v5)
-- not (v5)
-- tokenise
-- encode_text
-- copy_table
-- print_table
-- check\_arg\_count
 - log_shift
 - art_shift
-- set_font
 - scan_table (form operand)
+- tokenise
+- output_stream (v5)
+- encode_text
+- aread (v5)
+- copy_table
+- save (v5, becomes EXT)
+- restore (v5, becomes EXT)
 - save_undo
 - restore_undo
+- print_table
+- catch
+- throw
 
 ## Opcodes remaining for v5 - Extension
 - print_unicode
