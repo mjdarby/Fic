@@ -1200,8 +1200,8 @@ class Memory:
   def save(self, instruction):
     printLog("save")
     # Another instruction that gets moved around...
+    decoded_opers  = self.decodeOperands(instruction)
     if (self.version > 4):
-      decoded_opers  = self.decodeOperands(instruction)
       if len(decoded_opers) > 0:
         table = decoded_opers[0]
         byte_count = decoded_opers[1]
@@ -1224,8 +1224,8 @@ class Memory:
     # Version 1-3: Jump
     if (self.version < 4):
       self.handleJumpDestination(save_successful, instruction)
-    # Version 4: Store result
-    elif (self.version < 5):
+    # Version 4+: Store result
+    else:
       self.setVariable(instruction.store_variable, save_successful)
 
   def save_undo(self, instruction):
@@ -1264,8 +1264,8 @@ class Memory:
     # Version 1-3: Jump
     if (self.version < 4):
       self.handleJumpDestination(restore_successful, instruction)
-    # Version 4: Store result
-    elif (self.version < 5):
+    # Version 4+: Store result
+    else:
       self.setVariable(instruction.store_variable, restore_successful)
 
   def pop(self, instruction):
@@ -2146,13 +2146,13 @@ class Memory:
           next_byte += 1
 
     # If this opcode needs a store variable, get it...
-    if (needsStoreVariable(opcode, self.version)):
+    if (needsStoreVariable(opcode)):
       store_variable = self.getSmallNumber(next_byte)
       next_byte += 1
 
     # If this opcode needs a branch offset, get that...
     branch_on_true = None
-    if (needsBranchOffset(opcode, self.version)):
+    if (needsBranchOffset(opcode)):
       branch_byte = self.getSmallNumber(next_byte)
       branch_on_true = (branch_byte & 0b10000000) == 0b10000000
       next_byte += 1
@@ -2810,7 +2810,7 @@ class Memory:
     if byte == 0x0:
       return "save4", self.save
     if byte == 0x1:
-      return "return4", self.restore
+      return "restore4", self.restore
     if byte == 0x2:
       return "log_shift", self.log_shift
     if byte == 0x3:
@@ -3214,14 +3214,10 @@ class Memory:
     stdscr.addstr(0, 0, string, curses.A_REVERSE)
     stdscr.move(y, x)
 
-def needsStoreVariable(opcode, version):
-  # TODO: Sometimes the opcode changes between versions
-  #       so this function has to take that into account
+def needsStoreVariable(opcode):
   return opcode in NeedStoreVariable
 
-def needsBranchOffset(opcode, version):
-  # TODO: Sometimes the opcode changes between versions
-  #       so this function has to take that into account
+def needsBranchOffset(opcode):
   return opcode in NeedBranchOffset
 
 def needsTextLiteral(opcode, version):
