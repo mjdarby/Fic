@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table", "piracy", "check_arg_count"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift", "set_font", "read5"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -47,12 +47,13 @@ transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
-LOGPRINT = False
+LOGPRINT = True
 CZECH_MODE = False
 
 MAX_SAVE_FILE_LENGTH = 20
 
 stdscr = None
+colour_map = dict()
 
 def printTrace(*string, end=''):
   if TRACEPRINT:
@@ -61,6 +62,16 @@ def printTrace(*string, end=''):
 def printLog(*string):
   if LOGPRINT:
     print(string, file=logfile)
+
+def buildColourMap():
+  # Builds every possible colour pair between the available curses colours,
+  # which happen to neatly line up with the Z-Machine colours (without extensions)
+  i = 1
+  for fore in [curses.COLOR_BLACK, curses.COLOR_BLUE, curses.COLOR_CYAN, curses.COLOR_GREEN, curses.COLOR_MAGENTA, curses.COLOR_RED, curses.COLOR_WHITE, curses.COLOR_YELLOW]:
+    for back in [curses.COLOR_BLACK, curses.COLOR_BLUE, curses.COLOR_CYAN, curses.COLOR_GREEN, curses.COLOR_MAGENTA, curses.COLOR_RED, curses.COLOR_WHITE, curses.COLOR_YELLOW]:
+      curses.init_pair(i, fore, back)
+      colour_map[(fore, back)] = curses.color_pair(i)
+      i += 1
 
 def cursesKeyToZscii(cstring):
   if cstring == 'KEY_DC':
@@ -222,6 +233,7 @@ class Memory:
     self.getFirstAddress()
     self.setFlags()
     self.setScreenDimensions()
+    self.setDefaultColours()
     self.setInterpreterNumberVersion(6, ord('I'))
     self.active_output_streams = [1]
     self.stream = ""
@@ -240,6 +252,9 @@ class Memory:
     self.text_fixed_pitch = False
     self.restoring = False
     self.readRanOnce = False # Necessary to avoid z3 status bar print before 'read'
+    self.currentFont = 1 # 1: Normal, 2: Picture, 3: CharGraphics, 4: Fixed-width Courier-style
+    self.currentForeground = 9 # White
+    self.currentBackground = 2 # Black
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -284,7 +299,7 @@ class Memory:
       # Bit 5: Sound effects?
       flags = setNthBit(flags, 5, False) # Not yet.
       # Bit 7: Timed keyboard input?
-      flags = setNthBit(flags, 7, False) # Not yet. Think Border Zone requires it.
+      flags = setNthBit(flags, 7, False) # Not yet. Border Zone requires it.
       self.mem[0x01] = flags
       printLog("flags set: " + bin(self.mem[0x01]))
 
@@ -305,6 +320,9 @@ class Memory:
     flags = setNthBit(flags, 8, False) # No - and we probably won't ever support v6 anyway.
     self.mem[0x10] = flags
 
+  def setDefaultColours(self):
+    self.mem[0x2c] = 2 # Default black background
+    self.mem[0x2d] = 9 # Default white foreground
 
   # read dictionary
   def readDictionary(self):
@@ -669,16 +687,6 @@ class Memory:
     target_character = self.getZsciiCharacter(character)
     self.printToStream(target_character, '')
 
-  # opcodes
-  def restart(self, instruction):
-    printLog("restart")
-    # Wipe it all.
-    self.__init__(self.raw)
-    self.readDictionary()
-    y, x = stdscr.getmaxyx()
-    self.bottomWinCursor = (y-1, 0)
-    stdscr.clear()
-
   def handleInput(self, length):
     y, x = stdscr.getyx()
     maxy, maxx = stdscr.getmaxyx()
@@ -688,6 +696,44 @@ class Memory:
     text = tb.edit()
     del inputWin
     return text
+
+  def copyTable(self, fromAddr, toAddr, size):
+    # copyTable both copies tables and zeroes them, depending on input
+
+    # toAddr == 0? Zero the first size bytes of fromAddr
+    if toAddr == 0:
+      printLog("copy_table: zero operation")
+      size = abs(size)
+      for i in range(size):
+        self.mem[fromAddr + i] = 0
+    else:
+    # toAddr != 0? Copy data from one address to the other but
+    # be careful not to overwrite the original data if size
+    # is >0
+      mustCopyForward = size < 0
+      size = abs(size)
+      canCopyForwardWithoutCorruption = (fromAddr - toAddr) > size
+      if canCopyForwardWithoutCorruption or mustCopyForward:
+        printLog("copy_table: forwards copy")
+        for i in range(size):
+          self.mem[toAddr + i] = self.mem[fromAddr + i]
+      else:
+        # TODO: What does 'copy backwards' mean..?
+        # We'll have to do some experiments later on to
+        # try and understand.
+        printLog("copy_table: backwards copy")
+        for i in range(size):
+          self.mem[toAddr - i] = self.mem[fromAddr + i]
+
+  # opcodes
+  def restart(self, instruction):
+    printLog("restart")
+    # Wipe it all.
+    self.__init__(self.raw)
+    self.readDictionary()
+    y, x = stdscr.getmaxyx()
+    self.bottomWinCursor = (y-1, 0)
+    stdscr.clear()
 
   def read(self, instruction):
     printLog("read")
@@ -725,6 +771,11 @@ class Memory:
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
     self.parseString(string, parse_buffer_address, text_buffer_address)
+
+    # TODO: Handle function keys and timeouts
+    if self.version > 4:
+      self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
+
     self.pc += instruction.instr_length
 
   def read_char(self, instruction):
@@ -745,6 +796,15 @@ class Memory:
 
     self.setVariable(instruction.store_variable, ch_val)
 
+    self.pc += instruction.instr_length
+
+  def copy_table(self, instruction):
+    printLog("copy_table")
+    decoded_opers  = self.decodeOperands(instruction)
+    from_addr = decoded_opers[0]
+    to_addr = decoded_opers[1]
+    size = decoded_opers[2]
+    self.copyTable(from_addr, to_addr, size)
     self.pc += instruction.instr_length
 
   def check_arg_count(self, instruction):
@@ -822,6 +882,27 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     new_style = decoded_opers[0]
     self.setTextStyle(new_style)
+    self.pc += instruction.instr_length
+
+  def set_colour(self, instruction):
+    printLog("set_colour")
+    decoded_opers  = self.decodeOperands(instruction)
+    foreground = decoded_opers[0]
+    background = decoded_opers[1]
+    if len(decoded_opers) > 2 and self.version == 6:
+      window = decoded_opers[2]
+      raise Exception("set_colour v6: Not implemented")
+    self.setColour(foreground, background)
+    self.pc += instruction.instr_length
+
+  def set_font(self, instruction):
+    printLog("set_font")
+    decoded_opers  = self.decodeOperands(instruction)
+    new_font = decoded_opers[0]
+    if self.version == 6 and len(decoded_opers) > 1:
+      window = decoded_opers[1]
+      raise Exception("set_font v6: Not implemented")
+    self.setFont(new_font)
     self.pc += instruction.instr_length
 
   def buffer_mode(self, instruction):
@@ -1724,29 +1805,31 @@ class Memory:
 
   def quit(self, instruction):
     printLog("quit")
+    stdscr.addstr("\n[Press any key to exit.]")
+    stdscr.getch()
     quit()
 
   def eraseWindow(self, window):
     maxy, maxx = stdscr.getmaxyx()
     if window == 0:
-      stdscr.addstr(self.topWinRows, 0, ' ' * maxx * (maxy-self.topWinRows))
+      stdscr.addstr(self.topWinRows, 0, ' ' * maxx * (maxy-self.topWinRows), self.getTextAttributes())
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
         self.bottomWinCursor = (self.topWinRows, 0)
     if window == 1:
-      stdscr.addstr(1, 0, ' ' * maxx * (self.topWinRows))
+      stdscr.addstr(1, 0, ' ' * maxx * (self.topWinRows), self.getTextAttributes())
       self.topWinCursor = (0, 0)
     if window == -1:
       self.splitWindow(0)
-      stdscr.addstr(1, 0, ' ' * maxx * maxy)
+      stdscr.addstr(1, 0, ' ' * maxx * maxy, self.getTextAttributes())
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
         self.bottomWinCursor = (self.topWinRows, 0)
       self.topWinCursor = (0, 0)
     if window == -2:
-      stdscr.addstr(1, 0, ' ' * maxx * maxy)
+      stdscr.addstr(1, 0, ' ' * maxx * maxy, self.getTextAttributes())
       if self.version < 5:
         self.bottomWinCursor = (maxy-1, 0)
       else:
@@ -1783,7 +1866,7 @@ class Memory:
 
     if self.version < 4:
       # Clear the window
-      stdscr.addstr(1, 0, ' ' *maxx * rows)
+      stdscr.addstr(1, 0, ' ' *maxx * rows, self.getTextAttributes())
       self.topWinCursor = (1,0)
     else:
       self.topWinCursor = (0,0)
@@ -1815,6 +1898,7 @@ class Memory:
     decoded_opers  = []
     for operand_pair in oper_zip:
       if (operand_pair[0] == OperandType.Variable):
+        printLog("Variable Operand:", hex(self.peekVariable(operand_pair[1])))
         decoded_opers.append(self.getVariable(operand_pair[1]))
       else:
         printLog("Operand:", hex(operand_pair[1]))
@@ -2504,6 +2588,8 @@ class Memory:
       return "call_2s", self.call
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1A):
       return "call_2n", self.call
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1B):
+      return "set_colour", self.set_colour
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
       return "jz", self.jz
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
@@ -2577,40 +2663,23 @@ class Memory:
       return "piracy", self.piracy
     if (operand_type == Operand.VAR and byte == 224):
         return "call", self.call
-    if (operand_type == Operand.VAR and byte == 230):
-      return "print_num", self.print_num
-    if (operand_type == Operand.VAR and byte == 231):
-      return "random", self.random
-    if (operand_type == Operand.VAR and byte == 236):
-      return "call_vs2", self.call
-    if (operand_type == Operand.VAR and byte == 238):
-      return "erase_line", self.erase_line
-    if (operand_type == Operand.VAR and byte == 239):
-      return "set_cursor", self.set_cursor
-    if (operand_type == Operand.VAR and byte == 240):
-      return "get_cursor", self.get_cursor
-    if (operand_type == Operand.VAR and byte == 237):
-      return "erase_window", self.erase_window
-    if (operand_type == Operand.VAR and byte == 242):
-      return "buffer_mode", self.buffer_mode
-    if (operand_type == Operand.VAR and byte == 241):
-      return "set_text_style", self.set_text_style
-    if (operand_type == Operand.VAR and byte == 247):
-      return "scan_table", self.scan_table
-    if (operand_type == Operand.VAR and byte == 248):
-      return "not", self.not_1
-    if (operand_type == Operand.VAR and byte == 249):
-      return "call_vn", self.call
-    if (operand_type == Operand.VAR and byte == 250):
-      return "call_vn2", self.call
     if (operand_type == Operand.VAR and byte == 225):
       return "storew", self.storew
     if (operand_type == Operand.VAR and byte == 226):
       return "storeb", self.storeb
     if (operand_type == Operand.VAR and byte == 227):
       return "put_prop", self.put_prop
+    if (operand_type == Operand.VAR and byte == 228):
+      if self.version < 5:
+        return "read", self.read
+      else:
+        return "read5", self.read
     if (operand_type == Operand.VAR and byte == 229):
       return "print_char", self.print_char
+    if (operand_type == Operand.VAR and byte == 230):
+      return "print_num", self.print_num
+    if (operand_type == Operand.VAR and byte == 231):
+      return "random", self.random
     if (operand_type == Operand.VAR and byte == 232):
       return "push", self.push
     if (operand_type == Operand.VAR and byte == 233):
@@ -2619,6 +2688,20 @@ class Memory:
       return "split_window", self.split_window
     if (operand_type == Operand.VAR and byte == 235):
       return "set_window", self.set_window
+    if (operand_type == Operand.VAR and byte == 236):
+      return "call_vs2", self.call
+    if (operand_type == Operand.VAR and byte == 237):
+      return "erase_window", self.erase_window
+    if (operand_type == Operand.VAR and byte == 238):
+      return "erase_line", self.erase_line
+    if (operand_type == Operand.VAR and byte == 239):
+      return "set_cursor", self.set_cursor
+    if (operand_type == Operand.VAR and byte == 240):
+      return "get_cursor", self.get_cursor
+    if (operand_type == Operand.VAR and byte == 241):
+      return "set_text_style", self.set_text_style
+    if (operand_type == Operand.VAR and byte == 242):
+      return "buffer_mode", self.buffer_mode
     if (operand_type == Operand.VAR and byte == 243):
       return "output_stream", self.output_stream
     if (operand_type == Operand.VAR and byte == 244):
@@ -2627,10 +2710,18 @@ class Memory:
       return "sound_effect", self.sound_effect
     if (operand_type == Operand.VAR and byte == 246):
       return "read_char", self.read_char
+    if (operand_type == Operand.VAR and byte == 247):
+      return "scan_table", self.scan_table
+    if (operand_type == Operand.VAR and byte == 248):
+      return "not", self.not_1
+    if (operand_type == Operand.VAR and byte == 249):
+      return "call_vn", self.call
+    if (operand_type == Operand.VAR and byte == 250):
+      return "call_vn2", self.call
+    if (operand_type == Operand.VAR and byte == 253):
+      return "copy_table", self.copy_table
     if (operand_type == Operand.VAR and byte == 255):
       return "check_arg_count", self.check_arg_count
-    if (operand_type == Operand.VAR and byte == 228):
-      return "read", self.read
     raise Exception("Missing opcode: " + hex(byte))
 
   def getExtendedOpcode(self, byte):
@@ -2639,6 +2730,8 @@ class Memory:
       return "log_shift", self.log_shift
     if byte == 3:
       return "art_shift", self.art_shift
+    if byte == 4:
+      return "set_font", self.set_font
     raise Exception("Missing extended opcode: " + hex(byte))
 
   def saveGame(self):
@@ -2723,6 +2816,21 @@ class Memory:
       printLog(self.routine_callstack[-1].print_debug())
     printLog("-------------")
 
+  def getCurrentColourPair(self):
+    # Map Z-Machine to Curses
+    zmachine_to_curses = dict()
+    zmachine_to_curses[2] = curses.COLOR_BLACK
+    zmachine_to_curses[3] = curses.COLOR_RED
+    zmachine_to_curses[4] = curses.COLOR_GREEN
+    zmachine_to_curses[5] = curses.COLOR_YELLOW
+    zmachine_to_curses[6] = curses.COLOR_BLUE
+    zmachine_to_curses[7] = curses.COLOR_MAGENTA
+    zmachine_to_curses[8] = curses.COLOR_CYAN
+    zmachine_to_curses[9] = curses.COLOR_WHITE
+    cursesFore = zmachine_to_curses[self.currentForeground]
+    cursesBack = zmachine_to_curses[self.currentBackground]
+    return (cursesFore, cursesBack)
+
   def getTextAttributes(self):
     flags = 0
     if self.text_reverse_video:
@@ -2730,9 +2838,16 @@ class Memory:
     if self.text_bold:
       flags |= curses.A_BOLD
     if self.text_italic:
-      flags |= curses.A_ITALIC
+      # Actually only present on Python 3.7 and above...
+      # and presumably not windows-curses either, but needs to be tested
+      # flags |= curses.A_ITALIC
+      pass
     if self.text_fixed_pitch:
       pass
+
+    colour_pair = self.getCurrentColourPair()
+    flags |= colour_map[colour_pair]
+
     return flags
 
   def printBufferedString(self, string):
@@ -2774,6 +2889,39 @@ class Memory:
       self.text_italic = True
     if textStyle == 8:
       self.text_fixed_pitch = True
+
+  def setColour(self, foreground, background):
+    # Change the colours according to the colour table
+    # TODO: Only flush if a colour actually changes
+    self.drawWindows()
+
+    if foreground == 0: # Current
+      pass
+    elif foreground == 1: # Default
+      self.currentForeground = 9 # Reset to default
+    else:
+      self.currentForeground = foreground
+
+    if background == 0: # Current
+      pass
+    elif background == 1: # Default
+      self.currentBackground = 2 # Reset to default
+    else:
+      self.currentBackground = background
+
+  def setFont(self, textStyle):
+    # We don't support any fonts in Fic due to terminal limitations
+    # so we return zero when asked to do anything fancy.
+    if textStyle == 0:
+      return self.currentFont
+    if textStyle == 1:
+      return self.currentFont
+    if textStyle == 2:
+      return 0
+    if textStyle == 3:
+      return 0
+    if textStyle == 4:
+      return 0
 
   def eraseLine(self, pixels):
     if self.version == 6:
@@ -2971,9 +3119,10 @@ def getOperandTypeFromBytes(byte):
     return OperandType.Variable
 
 def main():
-  # Setup for screen
+  # Setup for screen... lots of Curses rubbish
   global stdscr
   stdscr = curses.initscr()
+  curses.start_color()
   curses.noecho()
   curses.cbreak()
   stdscr.keypad(True)
@@ -2981,6 +3130,7 @@ def main():
   stdscr.idlok(True)
   stdscr.scrollok(True)
   y, x = stdscr.getmaxyx()
+  buildColourMap()
 
   # Load up the game
   main_memory = StoryLoader.LoadZFile(sys.argv[1])

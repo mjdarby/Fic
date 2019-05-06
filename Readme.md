@@ -102,6 +102,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - scan_table
 - set_attr
 - set_cursor
+- set_font - basically dummied
 - set\_text\_style - minus fixed pitch
 - show_status
 - store
@@ -129,6 +130,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - isAttributeSet/setAttribute needs tidying up
 - Split rendering logic out into entirely separate class and loop
   - Preparation for creating GUI client?
+- So many magic numbers you can call me Penn AND Teller.
 
 ### Architecture / To Do
 - Input streams
@@ -147,7 +149,6 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - set\_text\_style - Fixed Pitch..? This is a terminal application, so we don't really get a choice
 
 ### Opcodes remaining for v5 - ordered by perceived difficulty
-- set_font - only because we don't have a choice in the terminal
 - set_colour
 - scan_table (form operand)
 - tokenise
@@ -170,6 +171,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 
 ### Opcodes remaining for v6
 - set_colour (v6)
+- set_font (v6)
 - pull (v6)
 - erase_line (v6)
 - set_cursor (v6)
