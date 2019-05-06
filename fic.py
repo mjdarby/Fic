@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table", "piracy", "check_arg_count"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -1454,6 +1454,55 @@ class Memory:
     self.setVariable(instruction.store_variable, value)
     self.pc += instruction.instr_length # Move past the instr regardless
 
+  def log_shift(self, instruction):
+    printLog("log_shift")
+    # Python's default shift is arithmetic, so life's difficult here
+
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    val = decoded_opers[0]
+    shift = decoded_opers[1]
+
+    if shift > 0:
+      val = (val << shift) & 0xffff
+    elif val >= 0:
+      val = (val >> -shift) & 0xffff
+    else:
+      val = ((val+0x10000) >> -shift) & 0xffff
+
+
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
+    self.pc += instruction.instr_length
+
+  def art_shift(self, instruction):
+    printLog("art_shift")
+    # Python's default shift is arithmetic, so life's easy here.
+
+    decoded_opers = self.decodeOperands(instruction)
+    decoded_opers = [getSignedEquivalent(x) for x in decoded_opers]
+    val = decoded_opers[0]
+    shift = decoded_opers[1]
+
+    if shift > 0:
+      val = (val << shift) & 0xffff
+    else:
+      val = (val >> -shift) & 0xffff
+
+    val = getHexValue(val)
+    self.setVariable(instruction.store_variable, val)
+
+    # DEBUG: Validate
+    if (self.peekVariable(instruction.store_variable) != val):
+      raise Exception("Error loading value")
+
+    self.pc += instruction.instr_length
+
   def add(self, instruction):
     printLog("add")
     decoded_opers = self.decodeOperands(instruction)
@@ -1889,13 +1938,13 @@ class Memory:
     func = None
     operand_types = []
     if (self.version >= 5 and (first_opcode_byte == 0xbe)):
-      opcode = self.getExtendedOpcode(self.mem[next_byte])
-      form = Forms.Extended
+      opcode, func = self.getExtendedOpcode(self.mem[next_byte])
+      form = Form.Extended
       next_byte += 1
 
     # Figure out instruction form
     if (self.version >= 5 and (first_opcode_byte == 0xbe)):
-      form = Forms.Extended
+      form = Form.Extended
     elif ((first_opcode_byte & 0b11000000) == 0b11000000):
       form = Form.Variable
     elif ((first_opcode_byte & 0b10000000) == 0b10000000):
@@ -2586,7 +2635,10 @@ class Memory:
 
   def getExtendedOpcode(self, byte):
     printLog("ExtendedOpcode")
-    # Do something..!
+    if byte == 2:
+      return "log_shift", self.log_shift
+    if byte == 3:
+      return "art_shift", self.art_shift
     raise Exception("Missing extended opcode: " + hex(byte))
 
   def saveGame(self):

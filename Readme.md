@@ -28,6 +28,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 ### Opcodes implemented
 - add
 - and
+- art_shift
 - buffer_mode
 - call
 - call_1n
@@ -65,6 +66,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - load
 - loadb
 - loadw
+- log_shift
 - mod
 - mul
 - new_line
@@ -147,8 +149,6 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 ### Opcodes remaining for v5 - ordered by perceived difficulty
 - set_font - only because we don't have a choice in the terminal
 - set_colour
-- log_shift
-- art_shift
 - scan_table (form operand)
 - tokenise
 - aread (v5)
