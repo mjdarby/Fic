@@ -1,7 +1,9 @@
 # Fic
 Fic is a work-in-progress Z-Machine interpreter for Windows/Mac/Linux written in Python 3. It is for use on the terminal, and has been 'tested' in Windows Command Prompt, Windows Powershell, xfce4-terminal
 
-Currently 'supports' all V3 Z-Code games, minus the sound in The Lurking Horror. V1/V2 is mostly supported, except for one edge case where you use two digits in a row for input. Working on V4/V5(/V7/V8) support. Will likely never touch V6.
+Currently 'supports' all V3 Z-Code games, minus the sound in The Lurking Horror. V1/V2 is mostly supported, except for one edge case where you use two digits in a row for input. Support for V4 is partial, minus games that require timed input.
+
+Work is ongoing for full V4/V5(/V7/V8) support. Will likely never touch V6.
 
 ## Usage
 - If on Windows, install the Python pre-reqs as per requirements.txt
@@ -10,6 +12,7 @@ Currently 'supports' all V3 Z-Code games, minus the sound in The Lurking Horror.
 
 ## Known Issues
 - Resizing the terminal will do all sorts of horrible things to the interpreter. In this classic scenario of 'Doctor, It Hurts When I...', I suggest you don't resize the window while playing.
+- Save files append a space to the end on write..?
 
 ## Reporting bugs
 Please open a Github issue with a screenshot/copy-paste of the bug you've encountered, and provide:
@@ -96,11 +99,14 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - ret_popped
 - pop
 - restore
+- restore_undo
 - rfalse
 - rtrue
 - save
+- save_undo
 - scan_table
 - set_attr
+- set_colour
 - set_cursor
 - set_font - basically dummied
 - set\_text\_style - minus fixed pitch
@@ -149,7 +155,6 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - set\_text\_style - Fixed Pitch..? This is a terminal application, so we don't really get a choice
 
 ### Opcodes remaining for v5 - ordered by perceived difficulty
-- set_colour
 - scan_table (form operand)
 - tokenise
 - aread (v5)
@@ -158,8 +163,6 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - copy_table
 - save (v5, becomes EXT)
 - restore (v5, becomes EXT)
-- save_undo
-- restore_undo
 - print_table
 - catch
 - throw

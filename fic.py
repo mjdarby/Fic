@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table", "piracy", "check_arg_count"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift", "set_font", "read5"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift", "set_font", "read5", "save_undo"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -47,7 +47,7 @@ transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
-LOGPRINT = True
+LOGPRINT = False
 CZECH_MODE = False
 
 MAX_SAVE_FILE_LENGTH = 20
@@ -255,6 +255,7 @@ class Memory:
     self.currentFont = 1 # 1: Normal, 2: Picture, 3: CharGraphics, 4: Fixed-width Courier-style
     self.currentForeground = 9 # White
     self.currentBackground = 2 # Black
+    self.undo_buffer = []
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -1174,6 +1175,22 @@ class Memory:
     elif (self.version < 5):
       self.setVariable(instruction.store_variable, save_successful)
 
+  def save_undo(self, instruction):
+    printLog("save_undo")
+    if self.restoring:
+      save_successful = 2
+      self.restoring = False
+    else:
+      save_successful = self.saveGameForUndo()
+    self.pc += instruction.instr_length
+    self.setVariable(instruction.store_variable, save_successful)
+
+  def restore_undo(self, instruction):
+    printLog("save_undo")
+    self.pc += instruction.instr_length
+    self.restoreFromUndo() # Assume this always works?
+    self.setVariable(instruction.store_variable, 0)
+
   def restore(self, instruction):
     printLog("restore")
     # Another instruction that gets moved around...
@@ -1181,7 +1198,7 @@ class Memory:
       raise Exception("restore: Moved to EXT from version 5")
 
     self.pc += instruction.instr_length
-    restore_successful = self.restoreGame()
+    restore_successful = self.restoreFromFile()
     # Version 1-3: Jump
     if (self.version < 4):
       self.handleJumpDestination(restore_successful, instruction)
@@ -2732,7 +2749,22 @@ class Memory:
       return "art_shift", self.art_shift
     if byte == 4:
       return "set_font", self.set_font
+    if byte == 9:
+      return "save_undo", self.save_undo
+    if byte == 10:
+      return "restore_undo", self.restore_undo
     raise Exception("Missing extended opcode: " + hex(byte))
+
+  def generateSaveBlob(self):
+    blob = pickle.dumps(self, pickle.HIGHEST_PROTOCOL)
+    return blob
+
+  def saveGameForUndo(self):
+    blob = self.generateSaveBlob()
+    self.undo_buffer.append(blob)
+    if len(self.undo_buffer) > 10:
+      self.undo_buffer = self.undo_buffer[-10:]
+    return 0
 
   def saveGame(self):
     # Necessary to stream print as we're out of the
@@ -2748,7 +2780,8 @@ class Memory:
     # TODO: Don't use pickle, it's dangerous
     try:
       with open(file_name, 'wb') as f:
-        pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)
+        blob = self.generateSaveBlob()
+        f.write(blob)
         printLog("save: self.pc", self.pc)
         return 1
     except FileNotFoundError:
@@ -2756,7 +2789,35 @@ class Memory:
 
     return 0
 
-  def restoreGame(self):
+  def restoreFromBlob(self, blob):
+    self.raw = blob.raw
+    self.mem = blob.mem
+    self.version = blob.mem[0x00]
+    self.dynamic = 0
+    self.static = blob.mem[0x0e]
+    self.high = blob.mem[0x04]
+    self.routine_offset = blob.mem[0x28]
+    self.string_offset = blob.mem[0x2a]
+    self.global_table_start = blob.getWord(0x0c)
+    self.object_table_start = blob.getWord(0x0a)
+    self.abbreviation_table_start = blob.getWord(0x18)
+    self.dictionary_table_start = blob.getWord(0x08)
+    self.stack = blob.stack
+    self.routine_callstack = blob.routine_callstack
+    self.lock_alphabets = blob.lock_alphabets
+    self.current_abbrev = blob.current_abbrev
+    self.ten_bit_zscii_bytes_needed = blob.ten_bit_zscii_bytes_needed
+    self.ten_bit_zscii_bytes = blob.ten_bit_zscii_bytes
+    self.word_separators = blob.word_separators
+    self.dictionary_mapping = blob.dictionary_mapping
+    self.timedGame = blob.timedGame
+    self.stream = blob.stream
+    self.active_output_streams = blob.active_output_streams
+    self.pc = blob.pc
+    self.undo_buffer = []
+    self.restoring = True
+
+  def restoreFromFile(self):
     self.printToStream("Enter filename> ", '')
     self.refreshWindows()
     file_name = self.handleInput(MAX_SAVE_FILE_LENGTH)
@@ -2769,31 +2830,7 @@ class Memory:
       with open(file_name, 'rb') as f:
         printLog("pre-load: self.pc", self.pc)
         loaded_file = pickle.load(f)
-        self.raw = loaded_file.raw
-        self.mem = loaded_file.mem
-        self.version = loaded_file.mem[0x00]
-        self.dynamic = 0
-        self.static = loaded_file.mem[0x0e]
-        self.high = loaded_file.mem[0x04]
-        self.routine_offset = loaded_file.mem[0x28]
-        self.string_offset = loaded_file.mem[0x2a]
-        self.global_table_start = loaded_file.getWord(0x0c)
-        self.object_table_start = loaded_file.getWord(0x0a)
-        self.abbreviation_table_start = loaded_file.getWord(0x18)
-        self.dictionary_table_start = loaded_file.getWord(0x08)
-        self.stack = loaded_file.stack
-        self.routine_callstack = loaded_file.routine_callstack
-        self.lock_alphabets = loaded_file.lock_alphabets
-        self.current_abbrev = loaded_file.current_abbrev
-        self.ten_bit_zscii_bytes_needed = loaded_file.ten_bit_zscii_bytes_needed
-        self.ten_bit_zscii_bytes = loaded_file.ten_bit_zscii_bytes
-        self.word_separators = loaded_file.word_separators
-        self.dictionary_mapping = loaded_file.dictionary_mapping
-        self.timedGame = loaded_file.timedGame
-        self.stream = loaded_file.stream
-        self.active_output_streams = loaded_file.active_output_streams
-        self.pc = loaded_file.pc
-        self.restoring = True
+        self.restoreFromBlob(loaded_file)
         printLog("post-load:  self.pc", self.pc)
         return 2
     except FileNotFoundError:
@@ -2804,6 +2841,13 @@ class Memory:
       self.splitWindow(0)
 
     return 0
+
+  def restoreFromUndo(self):
+    # Should not be called unless there's a valid undo available,
+    # so let's live DANGEROUSLY.
+    last_undo = pickle.loads(self.undo_buffer[-1])
+    self.restoreFromBlob(last_undo)
+    return 2
 
   def print_debug(self):
     printLog("-------------")
@@ -2890,6 +2934,8 @@ class Memory:
     if textStyle == 8:
       self.text_fixed_pitch = True
 
+    stdscr.bkgdset(' ', self.getTextAttributes())
+
   def setColour(self, foreground, background):
     # Change the colours according to the colour table
     # TODO: Only flush if a colour actually changes
@@ -2908,6 +2954,8 @@ class Memory:
       self.currentBackground = 2 # Reset to default
     else:
       self.currentBackground = background
+
+    stdscr.bkgdset(' ', self.getTextAttributes())
 
   def setFont(self, textStyle):
     # We don't support any fonts in Fic due to terminal limitations
