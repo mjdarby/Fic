@@ -117,6 +117,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - sub
 - test
 - test_attr
+- tokenise
 - verify
 
 ## TODOs
@@ -156,7 +157,6 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 
 ### Opcodes remaining for v5 - ordered by perceived difficulty
 - scan_table (form operand)
-- tokenise
 - aread (v5)
 - output_stream (v5)
 - encode_text

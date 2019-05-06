@@ -326,14 +326,19 @@ class Memory:
     self.mem[0x2d] = 9 # Default white foreground
 
   # read dictionary
-  def readDictionary(self):
+  def readStandardDictionary(self):
     dict_addr = self.dictionary_table_start
+    self.dictionary_mapping, self.word_separators = self.readDictionaryAtAddress(dict_addr)
+
+  def readDictionaryAtAddress(self, dict_addr):
+    word_dict = dict()
+    separators = []
     byte = 0
     # How many separators?
     num_separators = self.getSmallNumber(dict_addr + byte)
     byte += 1
     for i in range(num_separators):
-      self.word_separators.append(self.getSmallNumber(dict_addr + byte))
+      separators.append(self.getSmallNumber(dict_addr + byte))
       byte += 1
 
     # How big is a dictionary entry?
@@ -341,18 +346,22 @@ class Memory:
     byte += 1
 
     # How many entries?
-    num_entries = self.getWord(dict_addr + byte)
+    num_entries = getSignedEquivalent(self.getWord(dict_addr + byte))
+    # Sorted-ness doesn't really matter to us... (-n means unsorted)
+    num_entries = abs(num_entries)
     byte += 2
 
     # Load 'em up!
     for i in range(num_entries):
       if self.version < 4:
         word_1, word_2 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2)
-        self.dictionary_mapping[(word_1 << 16) + word_2] = dict_addr + byte
+        word_dict[(word_1 << 16) + word_2] = dict_addr + byte
       else:
         word_1, word_2, word_3 = self.getWord(dict_addr + byte), self.getWord(dict_addr + byte + 2), self.getWord(dict_addr + byte + 4)
-        self.dictionary_mapping[(word_1 << 32) + (word_2 << 16) + word_3] = dict_addr + byte
+        word_dict[(word_1 << 32) + (word_2 << 16) + word_3] = dict_addr + byte
       byte += entry_size
+
+    return word_dict, separators
 
   # Input shenaningans
   def getTextBufferLength(self, address):
@@ -364,8 +373,8 @@ class Memory:
     num_bytes = len(string)
     text_offset = 1
 
-    # Version 5 writes the number of characters in the first
-    # byte of the buffer.
+    # Version 5: write the number of characters in the first
+    # not-max-length byte of the buffer.
     if (self.version > 4):
       self.mem[address+1] = num_bytes
       text_offset = 2
@@ -378,19 +387,31 @@ class Memory:
     if (self.version < 5):
       self.mem[address+text_offset+num_bytes] = 0
 
-  def tokeniseString(self, string):
+  def readFromTextBuffer(self, address):
+    string = ""
+    # Only used in V5, so make assumptions...
+    str_len = self.mem[address+1]
+    for i in range(str_len):
+      string += chr(self.mem[address+2+i])
+    return string
+
+  def tokeniseString(self, string, separators):
     strip = string.lower()
     string = string.strip()
-    for idx in self.word_separators:
+    for idx in separators:
       sep = self.getZsciiCharacter(idx)
       string = string.replace(sep, ' ' + sep + ' ') # Force separators to be separate tokens
     tokens = list(filter(None, string.split(' '))) # Split on space, remove empties
     printLog("Tokens: ", tokens)
     return tokens
 
-  def parseString(self, string, address, text_buffer_address):
+  def parseString(self, string, address, text_buffer_address, dictionary=None, separators=None, write_unrecognised_words=True):
+    if dictionary is None:
+      dictionary = self.dictionary_mapping
+    if separators is None:
+      separators = self.word_separators
     # Lexical parsing! Oh my
-    tokens = self.tokeniseString(string)
+    tokens = self.tokeniseString(string, separators)
     # Second byte of addr should store total number of tokens parsed
     self.mem[address+1] = len(tokens)
     # Look up each token in the dictionary
@@ -402,12 +423,12 @@ class Memory:
       else:
         key = ((byte_encoding[0] << 40) + (byte_encoding[1] << 32) + (byte_encoding[2] << 24) + (byte_encoding[3] << 16) + (byte_encoding[4] << 8) + (byte_encoding[5]))
       # Give addr of word in dict or 0 if not found (2 bytes)
-      if key in self.dictionary_mapping:
-        byte_1, byte_2 = self.breakWord(self.dictionary_mapping[key])
+      if key in dictionary:
+        byte_1, byte_2 = self.breakWord(dictionary[key])
         printLog("Found word", key, "at", byte_1, byte_2)
         self.mem[address+2+eff_idx] = byte_1
         self.mem[address+2+eff_idx+1] = byte_2
-      else:
+      elif write_unrecognised_words:
         printLog("Did not find word", key)
         self.mem[address+2+eff_idx] = 0
         self.mem[address+2+eff_idx+1] = 0
@@ -734,16 +755,16 @@ class Memory:
     printLog("restart")
     # Wipe it all.
     self.__init__(self.raw)
-    self.readDictionary()
+    self.readStandardDictionary()
     y, x = stdscr.getmaxyx()
     self.bottomWinCursor = (y-1, 0)
     stdscr.clear()
 
   def read(self, instruction):
     printLog("read")
-    if self.version == 3:
+    if self.version == 3 and not self.readRanOnce:
       self.readRanOnce = True
-    # Flush the buffer - seems like a good time for it?
+    # Flush the buffer
     self.drawWindows()
 
     decoded_opers  = self.decodeOperands(instruction)
@@ -779,6 +800,27 @@ class Memory:
     # TODO: Handle function keys and timeouts
     if self.version > 4:
       self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
+
+    self.pc += instruction.instr_length
+
+  def tokenise(self, instruction):
+    printLog("tokenise")
+    decoded_opers  = self.decodeOperands(instruction)
+    text_buffer_address = decoded_opers[0]
+    parse_buffer_address = decoded_opers[1]
+    dictionary_addr = None
+    dictionary = separators = None
+    flag = True
+    if len(decoded_opers) > 2 and dictionary_addr != 0:
+      dictionary_addr = decoded_opers[2]
+    if len(decoded_opers) > 3:
+      flag = decoded_opers[3] == 0 # 1 means do not write unrecognised words
+
+    if dictionary_addr:
+      dictionary, separators = self.readDictionaryAtAddress(dictionary_addr)
+
+    string = self.readFromTextBuffer(text_buffer_address)
+    self.parseString(string, parse_buffer_address, text_buffer_address, dictionary, separators, flag)
 
     self.pc += instruction.instr_length
 
@@ -1159,7 +1201,15 @@ class Memory:
     printLog("save")
     # Another instruction that gets moved around...
     if (self.version > 4):
-      raise Exception("save: Moved to EXT from version 5")
+      decoded_opers  = self.decodeOperands(instruction)
+      if len(decoded_opers) > 0:
+        table = decoded_opers[0]
+        byte_count = decoded_opers[1]
+        suggested_name = decoded_opers[2]
+        raise Exception("save: Additional parameters unimplemented")
+      if len(decoded_opers) > 3:
+        should_prompt = decoded_opers[3]
+        raise Exception("save: Additional parameters unimplemented")
 
     if self.restoring:
       save_successful = 2
@@ -1198,7 +1248,16 @@ class Memory:
     printLog("restore")
     # Another instruction that gets moved around...
     if (self.version > 4):
-      raise Exception("restore: Moved to EXT from version 5")
+      decoded_opers  = self.decodeOperands(instruction)
+      if len(decoded_opers) > 0:
+        table = decoded_opers[0]
+        byte_count = decoded_opers[1]
+        suggested_name = decoded_opers[2]
+        raise Exception("restore: Additional parameters unimplemented")
+      if len(decoded_opers) > 3:
+        should_prompt = decoded_opers[3]
+        raise Exception("restore: Additional parameters unimplemented")
+
 
     self.pc += instruction.instr_length
     restore_successful = self.restoreFromFile()
@@ -2738,6 +2797,8 @@ class Memory:
       return "call_vn", self.call
     if (operand_type == Operand.VAR and byte == 250):
       return "call_vn2", self.call
+    if (operand_type == Operand.VAR and byte == 251):
+      return "tokenise", self.tokenise
     if (operand_type == Operand.VAR and byte == 253):
       return "copy_table", self.copy_table
     if (operand_type == Operand.VAR and byte == 255):
@@ -2746,15 +2807,19 @@ class Memory:
 
   def getExtendedOpcode(self, byte):
     printLog("ExtendedOpcode")
-    if byte == 2:
+    if byte == 0x0:
+      return "save4", self.save
+    if byte == 0x1:
+      return "return4", self.restore
+    if byte == 0x2:
       return "log_shift", self.log_shift
-    if byte == 3:
+    if byte == 0x3:
       return "art_shift", self.art_shift
-    if byte == 4:
+    if byte == 0x4:
       return "set_font", self.set_font
-    if byte == 9:
+    if byte == 0x9:
       return "save_undo", self.save_undo
-    if byte == 10:
+    if byte == 0xA:
       return "restore_undo", self.restore_undo
     raise Exception("Missing extended opcode: " + hex(byte))
 
@@ -3186,7 +3251,7 @@ def main():
 
   # Load up the game
   main_memory = StoryLoader.LoadZFile(sys.argv[1])
-  main_memory.readDictionary()
+  main_memory.readStandardDictionary()
 
   # Set the initial cursor position
   main_memory.bottomWinCursor = (y-1, 0)
