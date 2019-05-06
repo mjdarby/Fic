@@ -724,7 +724,7 @@ class Memory:
         # try and understand.
         printLog("copy_table: backwards copy")
         for i in range(size):
-          self.mem[toAddr - i] = self.mem[fromAddr + i]
+          self.mem[toAddr -size + i] = self.mem[fromAddr + i]
 
   # opcodes
   def restart(self, instruction):
@@ -2938,9 +2938,6 @@ class Memory:
 
   def setColour(self, foreground, background):
     # Change the colours according to the colour table
-    # TODO: Only flush if a colour actually changes
-    self.drawWindows()
-
     if foreground == 0: # Current
       pass
     elif foreground == 1: # Default
@@ -3080,16 +3077,21 @@ class Memory:
 
   def setScreenDimensions(self):
     y, x = stdscr.getmaxyx()
-    self.mem[0x20] = y
-    self.mem[0x21] = x
+    # Dimensions of screen
+    self.mem[0x20] = y # Lines
+    self.mem[0x21] = x # Characters
     # Specifically for fixed-width terminals
     # all dimensions are '1'. So the screen
     # width/height are equal to the 1*height/width.
-    # Screen width
-    self.mem[0x22] = x
+    # Screen width - 8.4.3 of spec 1.1 states these are words
+    x_1, x_2 = self.breakWord(x)
+    self.mem[0x22] = x_1
+    self.mem[0x23] = x_2
     # Screen height
-    self.mem[0x24] = y
-    # Font width/height (swapped between v5/v6, but
+    y_1, y_2 = self.breakWord(y)
+    self.mem[0x24] = y_1
+    self.mem[0x25] = y_2
+    # Font width/height in 'units' (swapped between v5/v6, but
     # in our case it's the same so we don't care)
     self.mem[0x26] = 1
     self.mem[0x27] = 1
@@ -3099,7 +3101,6 @@ class Memory:
       self.drawStatusLine()
     self.setScreenDimensions()
     self.refreshWindows()
-
 
   def getCurrentWindowCursorPosition(self):
     return stdscr.getyx()
