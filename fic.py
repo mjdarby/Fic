@@ -713,8 +713,9 @@ class Memory:
     # is >0
       mustCopyForward = size < 0
       size = abs(size)
-      canCopyForwardWithoutCorruption = (fromAddr - toAddr) > size
-      if canCopyForwardWithoutCorruption or mustCopyForward:
+      # Will we start writing over fromAddr's own data?
+      willCorruptFromAddrData = fromAddr + size > toAddr
+      if not willCorruptFromAddrData or mustCopyForward:
         printLog("copy_table: forwards copy")
         for i in range(size):
           self.mem[toAddr + i] = self.mem[fromAddr + i]
@@ -724,7 +725,9 @@ class Memory:
         # try and understand.
         printLog("copy_table: backwards copy")
         for i in range(size):
-          self.mem[toAddr -size + i] = self.mem[fromAddr + i]
+          index = size - i
+          index -= 1
+          self.mem[toAddr + index] = self.mem[fromAddr + index]
 
   # opcodes
   def restart(self, instruction):
@@ -804,7 +807,7 @@ class Memory:
     decoded_opers  = self.decodeOperands(instruction)
     from_addr = decoded_opers[0]
     to_addr = decoded_opers[1]
-    size = decoded_opers[2]
+    size = getSignedEquivalent(decoded_opers[2])
     self.copyTable(from_addr, to_addr, size)
     self.pc += instruction.instr_length
 
