@@ -395,6 +395,13 @@ class Memory:
       string += chr(self.mem[address+2+i])
     return string
 
+  def readFromZsciiBuffer(self, address, length):
+    # Used for encode_text, which doesn't use text buffers like read/tokenise...
+    string = ""
+    for i in range(length):
+      string += chr(self.mem[address+i])
+    return string
+
   def tokeniseString(self, string, separators):
     strip = string.lower()
     string = string.strip()
@@ -841,6 +848,21 @@ class Memory:
       ch_val = cursesKeyToZscii(string)
 
     self.setVariable(instruction.store_variable, ch_val)
+
+    self.pc += instruction.instr_length
+
+  def encode_text(self, instruction):
+    printLog("encode_text")
+    decoded_opers  = self.decodeOperands(instruction)
+    zscii_buffer = decoded_opers[0]
+    length = decoded_opers[1]
+    start = decoded_opers[2]
+    coded_text_addr = decoded_opers[3]
+
+    string = self.readFromZsciiBuffer(zscii_buffer + start, length)
+    string_bytes = self.stringToEncodedBytes(string)
+    for i, byte in enumerate(string_bytes):
+      self.mem[coded_text_addr + i] = byte
 
     self.pc += instruction.instr_length
 
@@ -2801,6 +2823,8 @@ class Memory:
       return "call_vn2", self.call
     if (operand_type == Operand.VAR and byte == 251):
       return "tokenise", self.tokenise
+    if (operand_type == Operand.VAR and byte == 252):
+      return "encode_text", self.encode_text
     if (operand_type == Operand.VAR and byte == 253):
       return "copy_table", self.copy_table
     if (operand_type == Operand.VAR and byte == 255):

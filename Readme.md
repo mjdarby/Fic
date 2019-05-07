@@ -26,6 +26,15 @@ If you want to contribute to Fic development, please feel free to raise a pull r
 
 It's a pain to integration test this stuff, but I recently discovered the joys of CZECH by Amir Karger - so the first little rule we could have is that you run the CZECH suite against v3 + v4 and make sure the score/output you get isn't worse than what we started with. You can find the suite [here](https://www.ifarchive.org/indexes/if-archive/infocom/interpreters/tools/). You'll need to install Inform, but otherwise the Readme is self-explanatory.
 
+## Project Goals
+Modest - the idea is to implement to some standard every opcode of V1-V5+V7-V8. Full support is not the target as Fic is currently a terminal application, so fancy font stuff isn't possible for instance. I will consider Fic viable when the enhancements given in the TODO section are done, and it is possible to complete the Infocom catalogue. In addition, it would be grand to also support a few of the modern classics/personal favourites:
+- Photopia by Adam Cadre
+- Spider and Web by Andrew Plotkin
+- Bronze by Emily Short (implies Blorb support!)
+- Anchorhead by Michael Gentry
+
+Theoretically, correctly implementing the Z-Machine means supporting the above as well as everything else! But, sadly, I do not have time to test every game file the sun. If the above work to the degree that Frotz and other well-established interpreters support, I'll be happy. And for everything else - I've already outlined how to report bugs and contribute fixes!
+
 # Technical stuff
 ## Dones
 ### Opcodes implemented
@@ -46,6 +55,7 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - dec
 - dec_chk
 - div
+- encode_text
 - erase_line
 - erase_window
 - get_child
@@ -129,6 +139,8 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 - Implement Queztal save files - if only because the save fil format for Fic will break constantly as opcodes demand memory structure changes
 - Unit tests for each opcode
 - Full game run tests using replays (only confirm that we reach the end of the game, not that the display is correct)
+- Speed - this thing runs terribly slowly, and it looks like we can't just throw Pypy at it and call it a day.
+- Implement UNDO rather than hiding behind the header flag...
 
 ### Refactor
 - Split Memory into multiple classes
@@ -153,16 +165,14 @@ It's a pain to integration test this stuff, but I recently discovered the joys o
 ### Opcodes remaining for v4
 - sread (v4 - adds time + callback interrupt)
 - read_char (time + callback interrupt)
-- set\_text\_style - Fixed Pitch..? This is a terminal application, so we don't really get a choice
 
 ### Opcodes remaining for v5 - ordered by perceived difficulty
 - scan_table (form operand)
 - aread (v5)
 - output_stream (v5)
-- encode_text
-- copy_table
-- save (v5, becomes EXT)
-- restore (v5, becomes EXT)
+- copy_table (maybe completed - a challenge to test...)
+- save (v5, table)
+- restore (v5, table)
 - print_table
 - catch
 - throw
