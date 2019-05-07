@@ -96,6 +96,7 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - print_obj
 - print_paddr
 - print_ret
+- print_table
 - pull
 - push
 - put_prop
@@ -167,13 +168,10 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - read_char (time + callback interrupt)
 
 ### Opcodes remaining for v5 - ordered by perceived difficulty
-- scan_table (form operand)
 - aread (v5)
-- output_stream (v5)
 - copy_table (maybe completed - a challenge to test...)
 - save (v5, table)
 - restore (v5, table)
-- print_table
 - catch
 - throw
 

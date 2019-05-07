@@ -234,7 +234,7 @@ class Memory:
     self.setFlags()
     self.setScreenDimensions()
     self.setDefaultColours()
-    self.setInterpreterNumberVersion(6, ord('I'))
+    self.setInterpreterNumberVersion(2, ord('I')) # Beyond Zork...
     self.active_output_streams = [1]
     self.stream = ""
     self.targetWindow = 0
@@ -335,14 +335,14 @@ class Memory:
     separators = []
     byte = 0
     # How many separators?
-    num_separators = self.getSmallNumber(dict_addr + byte)
+    num_separators = self.getByte(dict_addr + byte)
     byte += 1
     for i in range(num_separators):
-      separators.append(self.getSmallNumber(dict_addr + byte))
+      separators.append(self.getByte(dict_addr + byte))
       byte += 1
 
     # How big is a dictionary entry?
-    entry_size = self.getSmallNumber(dict_addr + byte)
+    entry_size = self.getByte(dict_addr + byte)
     byte += 1
 
     # How many entries?
@@ -757,6 +757,20 @@ class Memory:
           index -= 1
           self.mem[toAddr + index] = self.mem[fromAddr + index]
 
+  def printTable(self, text_addr, width, height, skip):
+    char_idx = 0
+    if self.targetWindow == 0:
+      currentCursor = self.bottomWinCursor
+    elif self.targetWindow == 1:
+      currentCursor = self.topWinCursor
+    start_y, start_x = currentCursor
+    for i in range(height):
+      for j in range(width):
+        self.setCursor(start_y + i, start_x + j)
+        self.print_zscii_character(self.mem[text_addr + char_idx])
+        char_idx += 1
+      char_idx += skip
+
   # opcodes
   def restart(self, instruction):
     printLog("restart")
@@ -873,6 +887,24 @@ class Memory:
     to_addr = decoded_opers[1]
     size = getSignedEquivalent(decoded_opers[2])
     self.copyTable(from_addr, to_addr, size)
+    self.pc += instruction.instr_length
+
+  def print_table(self, instruction):
+    printLog("print_table")
+    decoded_opers  = self.decodeOperands(instruction)
+    text_addr = decoded_opers[0]
+    width = decoded_opers[1]
+    if len(decoded_opers) > 2:
+      height = decoded_opers[2]
+    else:
+      height = 1
+    if len(decoded_opers) > 3:
+      skip = decoded_opers[3]
+    else:
+      skip = 0
+
+    self.printTable(text_addr, width, height, skip)
+
     self.pc += instruction.instr_length
 
   def check_arg_count(self, instruction):
@@ -1624,7 +1656,7 @@ class Memory:
     self.mem[base_addr + (idx)] = value
 
     # DEBUG
-    if (self.getSmallNumber(base_addr + (idx)) != value):
+    if (self.getByte(base_addr + (idx)) != value):
       raise Exception("Error storing word")
 
     self.pc += instruction.instr_length # Move past the instr
@@ -1827,17 +1859,10 @@ class Memory:
     num_words = decoded_opers[2]
     if len(decoded_opers) > 3:
       form = decoded_opers[3]
-      raise Exception("V5 scan_table not implemented")
+    else:
+      form = 0x82 # word-search, fields of length two
 
-    word_found = False
-    addr_value = 0
-    for i in range(num_words):
-      addr_to_check = table_addr +  (i * 2)
-      word_in_table = self.getWord(addr_to_check)
-      if scan_value == word_in_table:
-        addr_value = addr_to_check
-        word_found = True
-        break
+    addr_value, word_found = self.scanTable(scan_value, table_addr, num_words, form)
 
     self.pc += instruction.instr_length
     self.setVariable(instruction.store_variable, addr_value)
@@ -1863,7 +1888,7 @@ class Memory:
     routine_address = self.unpackAddress(calling_addr, True)
     printLog("Routine address: " + hex(routine_address))
     # How many local variables?
-    local_var_count = self.getSmallNumber(routine_address)
+    local_var_count = self.getByte(routine_address)
     printLog("Total local variables: " + str(local_var_count))
     # For versions 1-4, we have initial values for these variables
     # Versions 5+ use zero instead
@@ -2102,7 +2127,7 @@ class Memory:
     return (self.mem[addr] << 8) + self.mem[addr+1]
 
   # Some are small!
-  def getSmallNumber(self, addr):
+  def getByte(self, addr):
     return self.mem[addr]
 
   # Read an instruction (probably at PC)
@@ -2163,27 +2188,27 @@ class Memory:
           operands.append(self.getWord(next_byte))
           next_byte += 2
         if (operand_type == OperandType.Small):
-          operands.append(self.getSmallNumber(next_byte))
+          operands.append(self.getByte(next_byte))
           next_byte += 1
         if (operand_type == OperandType.Variable):
-          operands.append(self.getSmallNumber(next_byte))
+          operands.append(self.getByte(next_byte))
           next_byte += 1
 
     # If this opcode needs a store variable, get it...
     if (needsStoreVariable(opcode)):
-      store_variable = self.getSmallNumber(next_byte)
+      store_variable = self.getByte(next_byte)
       next_byte += 1
 
     # If this opcode needs a branch offset, get that...
     branch_on_true = None
     if (needsBranchOffset(opcode)):
-      branch_byte = self.getSmallNumber(next_byte)
+      branch_byte = self.getByte(next_byte)
       branch_on_true = (branch_byte & 0b10000000) == 0b10000000
       next_byte += 1
       if ((branch_byte & 0b01000000) == 0b01000000):
         branch_offset = branch_byte & 0b00111111
       else:
-        branch_byte_two = self.getSmallNumber(next_byte)
+        branch_byte_two = self.getByte(next_byte)
         # Annoying 15-bit sign conversion
         val = ((branch_byte & 0b00011111) << 8) + branch_byte_two
         if ((branch_byte & 0b00100000) == 0b00100000):
@@ -2221,6 +2246,26 @@ class Memory:
     text_literal.append(chars)
     next_byte += 2
     return (text_literal, next_byte)
+
+  def scanTable(self, scan_value, table_addr, num_words, form):
+    # Search for a match in a given table
+    # Form determines if we search for words/bytes, and the length of each
+    # field in the table.
+    word_found = False # Feels superfluous - can you return address zero AND branch..?
+    addr_value = 0
+    search_for_word = isNthBitSet(form, 7)
+    field_length = form & 0b01111111
+    for i in range(num_words):
+      addr_to_check = table_addr +  (i * field_length)
+      if search_for_word:
+        value_in_table = self.getWord(addr_to_check)
+      else:
+        value_in_table = self.getByte(addr_to_check)
+      if scan_value == value_in_table:
+        addr_value = addr_to_check
+        word_found = True
+        break
+    return addr_value, word_found
 
   def getPropertyDefault(self, prop_number):
     # Prop_number >= 1 < 32 for versions 1-3, < 64 for version 4
@@ -2374,19 +2419,19 @@ class Memory:
     parent_addr = self.getObjectParentAddress(obj_number)
     if (self.version > 3):
       return self.getWord(parent_addr)
-    return self.getSmallNumber(parent_addr)
+    return self.getByte(parent_addr)
 
   def getObjectSibling(self, obj_number):
     sibling_addr = self.getObjectSiblingAddress(obj_number)
     if (self.version > 3):
       return self.getWord(sibling_addr)
-    return self.getSmallNumber(sibling_addr)
+    return self.getByte(sibling_addr)
 
   def getObjectChild(self, obj_number):
     child_addr = self.getObjectChildAddress(obj_number)
     if (self.version > 3):
       return self.getWord(child_addr)
-    return self.getSmallNumber(child_addr)
+    return self.getByte(child_addr)
 
   def setObjectParent(self, obj_number, parent):
     parent_addr = self.getObjectParentAddress(obj_number)
@@ -2431,7 +2476,7 @@ class Memory:
       return self.getWord(prop_start_addr)
     elif (prop_bytes == 1):
       printLog("getProperty: return byte: prop num:", prop_number, "val:", hex(self.getWord(prop_start_addr)))
-      return self.getSmallNumber(prop_start_addr)
+      return self.getByte(prop_start_addr)
     else:
       raise Exception("Illegal property access")
 
@@ -2447,7 +2492,7 @@ class Memory:
   def getPropertyListAddress(self, obj_number):
     prop_table_address = self.getPropertyTableAddress(obj_number)
     printLog("Prop addr: prop table address:", hex(prop_table_address))
-    short_name_length = self.getSmallNumber(prop_table_address)
+    short_name_length = self.getByte(prop_table_address)
     prop_list_start = prop_table_address + (short_name_length*2) + 1
     return prop_list_start
 
@@ -2467,7 +2512,7 @@ class Memory:
     prop_list_address = self.getPropertyListAddress(obj_number)
     printLog("Prop addr: prop list addr:", hex(prop_list_address))
     size_byte_addr = prop_list_address
-    size_byte = self.getSmallNumber(size_byte_addr)
+    size_byte = self.getByte(size_byte_addr)
     printLog("Prop addr: size_byte:", size_byte)
     while (size_byte != 0):
       prop_bytes, skip_bytes = self.getPropertySize(size_byte_addr)
@@ -2479,7 +2524,7 @@ class Memory:
       printLog("Prop addr: wasn't it, skipping bytes:", prop_bytes + skip_bytes)
       # Get the next property
       size_byte_addr += (prop_bytes + skip_bytes) # move past size byte + prop bytes
-      size_byte = self.getSmallNumber(size_byte_addr)
+      size_byte = self.getByte(size_byte_addr)
       printLog("Prop addr: next check at", hex(size_byte_addr))
       printLog("Prop addr: size_byte:", size_byte)
     printLog("Prop addr: prop not found")
@@ -2496,7 +2541,7 @@ class Memory:
       return self.getPropertySizeV1(prop_address)[0]
     else:
       size_byte_addr = prop_address
-      size_byte = self.getSmallNumber(size_byte_addr)
+      size_byte = self.getByte(size_byte_addr)
       if ((size_byte & 0b10000000) >> 7) == 1:
         # This is the second size byte, so take the bottom six bits.
         prop_bytes = (size_byte & 0b00111111)
@@ -2513,16 +2558,16 @@ class Memory:
 
   def getPropertySizeV1(self, prop_address):
     size_byte_addr = prop_address
-    size_byte = self.getSmallNumber(size_byte_addr)
+    size_byte = self.getByte(size_byte_addr)
     prop_bytes = ((size_byte & 0b11100000) >> 5) + 1
     skip_bytes = 1
     return prop_bytes, skip_bytes
 
   def getPropertySizeV4(self, prop_address):
     size_byte_addr = prop_address
-    first_size_byte = self.getSmallNumber(size_byte_addr)
+    first_size_byte = self.getByte(size_byte_addr)
     if (first_size_byte >> 7) == 1:
-      second_size_byte = self.getSmallNumber(size_byte_addr+1)
+      second_size_byte = self.getByte(size_byte_addr+1)
       prop_bytes = (second_size_byte & 0b00111111)
       if prop_bytes == 0:
         # As per spec: A value of 0 as property data length (in the second byte) should be interpreted as a length of 64
@@ -2544,12 +2589,12 @@ class Memory:
 
   def getPropertyNumberV1(self, prop_address):
     size_byte_addr = prop_address
-    size_byte = self.getSmallNumber(size_byte_addr)
+    size_byte = self.getByte(size_byte_addr)
     return (0b00011111 & size_byte)
 
   def getPropertyNumberV4(self, prop_address):
     size_byte_addr = prop_address
-    first_size_byte = self.getSmallNumber(size_byte_addr)
+    first_size_byte = self.getByte(size_byte_addr)
     return (first_size_byte & 0b00111111)
 
   def setProperty(self, obj_number, prop_number, value):
@@ -2827,6 +2872,8 @@ class Memory:
       return "encode_text", self.encode_text
     if (operand_type == Operand.VAR and byte == 253):
       return "copy_table", self.copy_table
+    if (operand_type == Operand.VAR and byte == 254):
+      return "print_table", self.print_table
     if (operand_type == Operand.VAR and byte == 255):
       return "check_arg_count", self.check_arg_count
     raise Exception("Missing opcode: " + hex(byte))
@@ -2978,8 +3025,8 @@ class Memory:
     if self.text_italic:
       # Actually only present on Python 3.7 and above...
       # and presumably not windows-curses either, but needs to be tested
-      # flags |= curses.A_ITALIC
-      pass
+      if sys.version_info >= (3,7):
+        flags |= curses.A_ITALIC
     if self.text_fixed_pitch:
       pass
 
