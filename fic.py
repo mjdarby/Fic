@@ -792,7 +792,12 @@ class Memory:
 
     decoded_opers  = self.decodeOperands(instruction)
     text_buffer_address = decoded_opers[0]
-    parse_buffer_address = decoded_opers[1]
+    if len(decoded_opers) > 1: # Etude has a READ with no parse buffer...
+                               # Spec implies it should be passing a zero
+                               # parameter, but let's just cater for it.
+      parse_buffer_address = decoded_opers[1]
+    else:
+      parse_buffer_address = 0
 
     if len(decoded_opers) > 2:
       time = decoded_opers[2]
@@ -818,7 +823,9 @@ class Memory:
     self.printToCommandStream(string, '\n')
     self.printToStream(string, '\n')
     self.writeToTextBuffer(string, text_buffer_address)
-    self.parseString(string, parse_buffer_address, text_buffer_address)
+    # Parsing is option in v5+:
+    if parse_buffer_address > 0:
+      self.parseString(string, parse_buffer_address, text_buffer_address)
 
     # TODO: Handle function keys and timeouts
     if self.version > 4:
@@ -980,6 +987,8 @@ class Memory:
     self.pc += instruction.instr_length
 
   def throw(self, instruction):
+    # Keep throwing away routine callstacks until we
+    # get to the one we want, then return.
     printLog("throw")
     decoded_opers  = self.decodeOperands(instruction)
     ret_val = decoded_opers[0]
