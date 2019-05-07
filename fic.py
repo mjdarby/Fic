@@ -23,7 +23,7 @@ Alphabet = Enum('Alphabet', 'A0 A1 A2')
 
 # 'Needs'
 NeedBranchOffset = ["jin","jg","jl","je","inc_chk","dec_chk","jz","get_child","get_sibling","save1","restore1","test_attr","test","verify", "scan_table", "piracy", "check_arg_count"]
-NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift", "set_font", "read5", "save_undo"]
+NeedStoreVariable = ["call","and","get_parent","get_child","get_sibling","get_prop","add","sub","mul","div","mod","loadw","loadb", "get_prop_addr", "get_prop_len", "get_next_prop", "random", "load", "and", "or", "not", "call_2s", "call_vs2", "call_1s", "call_vs", "read_char", "scan_table", "save4", "restore4", "art_shift", "log_shift", "set_font", "read5", "save_undo", "catch"]
 NeedTextLiteral = ["print","print_ret"]
 
 # Alphabet
@@ -174,7 +174,9 @@ class RoutineCall:
     self.stack_state = []
     self.stack = []
     self.called_arg_count = 0
+    self.frame_pointer = 0
     self.return_address = 0x0000
+
 
   def print_debug(self):
     printLog("Routine call")
@@ -975,6 +977,22 @@ class Memory:
     if stream == 3:
       table = decoded_opers[1]
     self.setOutputStream(stream, table)
+    self.pc += instruction.instr_length
+
+  def throw(self, instruction):
+    printLog("throw")
+    decoded_opers  = self.decodeOperands(instruction)
+    ret_val = decoded_opers[0]
+    target_stack_frame = decoded_opers[1]
+    while (self.routine_callstack[-1].frame_pointer != target_stack_frame):
+      self.routine_callstack.pop()
+    self.ret_helper(instruction, ret_val)
+
+  def catch(self, instruction):
+    printLog("catch")
+    decoded_opers  = self.decodeOperands(instruction)
+    current_frame_pointer = self.routine_callstack[-1].frame_pointer
+    self.setVariable(instruction.store_variable, current_frame_pointer)
     self.pc += instruction.instr_length
 
   def set_text_style(self, instruction):
@@ -1884,7 +1902,8 @@ class Memory:
     # Grab the return addr
     new_routine.return_address = self.pc + instruction.instr_length
     new_routine.store_variable = instruction.store_variable
-    new_routine.stack_state = list(self.stack)
+    new_routine.stack_state = list(self.stack) # ??? Is this right?
+    new_routine.frame_pointer = len(self.routine_callstack)
     routine_address = self.unpackAddress(calling_addr, True)
     printLog("Routine address: " + hex(routine_address))
     # How many local variables?
@@ -2738,6 +2757,8 @@ class Memory:
       return "call_2n", self.call
     if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1B):
       return "set_colour", self.set_colour
+    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1C):
+      return "throw", self.throw
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
       return "jz", self.jz
     if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
@@ -2798,7 +2819,10 @@ class Memory:
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
       return "ret_popped", self.ret_popped
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x9):
-      return "pop", self.pop
+      if self.version < 5:
+        return "pop", self.pop
+      else:
+        return "catch", self.catch
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xa):
       return "quit", self.quit
     if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):

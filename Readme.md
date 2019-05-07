@@ -50,6 +50,7 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - call_vn
 - call_vn2
 - call_vs2
+- catch
 - check\_arg\_count
 - clear_attr
 - dec
@@ -128,6 +129,7 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - sub
 - test
 - test_attr
+- throw
 - tokenise
 - verify
 
@@ -172,8 +174,6 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - copy_table (maybe completed - a challenge to test...)
 - save (v5, table)
 - restore (v5, table)
-- catch
-- throw
 
 ### Opcodes remaining for v5 - Extension
 - print_unicode
