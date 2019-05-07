@@ -1234,7 +1234,9 @@ class Memory:
       save_successful = 2
       self.restoring = False
     else:
-      save_successful = self.saveGameForUndo()
+      save_successful = getHexValue(-1)
+      # save_successful = self.saveGameForUndo()
+      # This is murdering games like I-0... needs to be faster
     self.pc += instruction.instr_length
     self.setVariable(instruction.store_variable, save_successful)
 
