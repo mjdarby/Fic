@@ -59,27 +59,15 @@ main_memory = None
 
 layer = 1
 
+def callCallback():
+  main_memory.callbackTriggered = True
+  input_win.ungetch(curses.ascii.BEL)
+
 # Horrific code, don't actually do this
 def cursesValidator(ch):
   if ch == -1:
-    # Do the callback...
-    printLog("Callback called during read...")
-    if main_memory.callbackRoutine != 0:
-      printLog("Callback route addr:", hex(main_memory.callbackRoutine))
-      # Ugh... we're going to have to do a mini-run of the interpreter...
-      callback_routine, new_pc = main_memory.buildCallbackRoutineCall(main_memory.callbackRoutine)
-      main_memory.callRoutine(new_pc)
-      printLog("Routine ready")
-      ret_value = loop(main_memory)
-      main_memory.drawWindows()
-      printLog("Callback called during read, ret value:", ret_value)
-    else:
-      ret_value = 0
-    # If callback returns true, we escape the textpad
-    # and let the rest of the code do the prompt cleanup
-    if ret_value == 1:
-      main_memory.cursesCallbackValue = ret_value
-      ch = curses.ascii.BEL
+    main_memory.callbackTriggered = True
+    ch = curses.ascii.BEL
   return ch
 
 def printTrace(*string, end=''):
@@ -288,8 +276,10 @@ class Memory:
     self.currentForeground = 9 # White
     self.currentBackground = 2 # Black
     self.undo_buffer = []
-    self.cursesCallbackValue = 0
+    self.callbackCurrentString = ""
+    self.callbackReturnValue = 0
     self.callbackRoutine = 0
+    self.callbackTriggered = False
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -750,7 +740,7 @@ class Memory:
     target_character = self.getZsciiCharacter(character)
     self.printToStream(target_character, '')
 
-  def handleInput(self, length, time=0, routine=0):
+  def handleInput(self, length, time=0, routine=0, currentString=""):
     global input_win
 
     if input_win is not None: # Deal with nested Read calls... This is bad.
@@ -764,21 +754,13 @@ class Memory:
     maxy, maxx = stdscr.getmaxyx()
     length = min(length, maxx - x - 2) # Not exactly conforming to standard here...
     input_win = curses.newwin(1, length, y, x)
+    input_win.addstr(currentString)
 
     if time != 0 and routine != 0:
-      input_win.timeout(100*time) # rate passed is time/10, timeout is in milliseconds...
       self.callbackRoutine = routine
+      input_win.timeout(time) # rate passed is time/10, timeout is in milliseconds...
     tb = curses.textpad.Textbox(input_win)
     text = tb.edit(cursesValidator)
-    if self.callbackRoutine and self.cursesCallbackValue:
-      # We've come out of the text and the callback was 1, we need to
-      # wipe the input.
-      printLog("handleInput: Clear the input")
-      input_win.clear()
-      text = None
-      self.callbackRoutine = 0
-      self.cursesCallbackValue = 0
-      self.refreshWindows()
     del input_win
     input_win = None
     return text
@@ -840,12 +822,24 @@ class Memory:
 
   def read(self, instruction):
     printLog("read")
+    decoded_opers  = self.decodeOperands(instruction)
+
+    # See if we're coming back as part of the callback
+    if self.callbackTriggered:
+      self.callbackTriggered = False # Don't let it run again
+      if self.callbackReturnValue == 1:
+        # Premature quit
+        # self.eraseInput() ???
+        self.setVariable(instruction.store_variable, 0)
+        self.pc += instruction.instr_length
+        return
+
+    # Terrible v3 specific code
     if self.version == 3 and not self.readRanOnce:
       self.readRanOnce = True
     # Flush the buffer
     self.drawWindows()
 
-    decoded_opers  = self.decodeOperands(instruction)
     text_buffer_address = decoded_opers[0]
     if len(decoded_opers) > 1: # Etude has a READ with no parse buffer...
                                # Spec implies it should be passing a zero
@@ -863,7 +857,7 @@ class Memory:
 
     maxLen = self.getTextBufferLength(text_buffer_address)
     if (self.active_input_stream == 0):
-      string = self.handleInput(maxLen, time, routine)
+      string = self.handleInput(maxLen, time, routine, self.callbackCurrentString)
     else:
       # Get next line from file... if we run out of lines
       # or the file doesn't exist, go back to the old input method
@@ -877,20 +871,28 @@ class Memory:
         self.refreshWindows()
         string = self.handleInput(maxLen)
 
-    if string is not None:
-      self.printToCommandStream(string, '\n')
-      self.printToStream(string, '\n')
-      self.writeToTextBuffer(string, text_buffer_address)
-      # Parsing is option in v5+:
-      if parse_buffer_address > 0:
-        self.parseString(string, parse_buffer_address, text_buffer_address)
+    if self.callbackTriggered:
+      callback_routine, new_pc = self.buildCallbackRoutineCall(self.callbackRoutine)
+      self.callbackCurrentString = string.strip()
+      self.callRoutine(new_pc)
+      # Go do the routine, then come back
+      return
+    else:
+      # Input terminated normally, kill any running callbacks
+      self.callbackRoutine = 0
+      self.callbackReturnValue = 0
+      self.callbackCurrentString = ""
+
+    self.printToCommandStream(string, '\n')
+    self.printToStream(string, '\n')
+    self.writeToTextBuffer(string, text_buffer_address)
+    # Parsing is option in v5+:
+    if parse_buffer_address > 0:
+      self.parseString(string, parse_buffer_address, text_buffer_address)
 
     # TODO: Handle function keys and timeouts
     if self.version > 4:
-      if string is not None:
-        self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
-      else:
-        self.setVariable(instruction.store_variable, 0) # Hardcode timeout
+      self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
 
     self.pc += instruction.instr_length
 
@@ -1056,7 +1058,7 @@ class Memory:
     target_stack_frame = decoded_opers[1]
     while (self.routine_callstack[-1].frame_pointer != target_stack_frame):
       self.routine_callstack.pop()
-    return self.ret_helper(instruction, ret_val)
+    self.ret_helper(instruction, ret_val)
 
   def catch(self, instruction):
     printLog("catch")
@@ -1328,7 +1330,7 @@ class Memory:
     # Return value in parameter
     printLog("ret")
     decoded_opers  = self.decodeOperands(instruction)
-    return self.ret_helper(instruction, decoded_opers[0])
+    self.ret_helper(instruction, decoded_opers[0])
 
   def nop(self, instruction):
     # No operation - do nothing
@@ -1337,7 +1339,7 @@ class Memory:
   def ret_popped(self, instruction):
     # Return bottom of stack
     printLog("ret_popped")
-    return self.ret_helper(instruction, self.getVariable(0))
+    self.ret_helper(instruction, self.getVariable(0))
 
   def save(self, instruction):
     printLog("save")
@@ -1424,12 +1426,12 @@ class Memory:
   def rtrue(self, instruction):
     # Return true
     printLog("rtrue")
-    return self.ret_helper(instruction, 1)
+    self.ret_helper(instruction, 1)
 
   def rfalse(self, instruction):
     # Return false
     printLog("rfalse")
-    return self.ret_helper(instruction, 0)
+    self.ret_helper(instruction, 0)
 
   def ret_helper(self, instruction, ret_val):
     # Pop the current routine so setVariable is targeting the right set of locals
@@ -1443,8 +1445,8 @@ class Memory:
     # do anything with it.
     self.pc = current_routine.return_address
     if current_routine.is_callback:
+      self.callbackReturnValue = ret_val
       printLog("Callback return:", ret_val)
-      return ret_val
 
   def piracy(self, instruction):
     printLog("piracy")
@@ -3465,9 +3467,7 @@ def loop(main_memory):
     main_memory.print_debug()
     instr = main_memory.getInstruction(main_memory.pc)
     instr.print_debug()
-    end_loop = instr.run(main_memory)
-    if end_loop is not None:
-      return end_loop
+    instr.run(main_memory)
     if CZECH_MODE:
       # If running in Czech mode, we will flush output after EVERY command
       main_memory.drawWindows()
