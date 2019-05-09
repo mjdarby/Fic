@@ -158,6 +158,8 @@ Theoretically, correctly implementing the Z-Machine means supporting the above a
 - Input streams
   - Specifically of read input as only input/output characters
   - Easier/better way of handling replays outside of built-in #comm commands
+  - Supporting text buffer already being populated for timeout scenarios
+  - Timeout/callback scenarios
 - Sound effects
 - Random number generator
   - Predictable mode

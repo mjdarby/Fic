@@ -47,13 +47,40 @@ transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
-LOGPRINT = False
+LOGPRINT = True
 CZECH_MODE = False
 
 MAX_SAVE_FILE_LENGTH = 20
 
 stdscr = None
+input_win = None
 colour_map = dict()
+main_memory = None
+
+layer = 1
+
+# Horrific code, don't actually do this
+def cursesValidator(ch):
+  if ch == -1:
+    # Do the callback...
+    printLog("Callback called during read...")
+    if main_memory.callbackRoutine != 0:
+      printLog("Callback route addr:", hex(main_memory.callbackRoutine))
+      # Ugh... we're going to have to do a mini-run of the interpreter...
+      callback_routine, new_pc = main_memory.buildCallbackRoutineCall(main_memory.callbackRoutine)
+      main_memory.callRoutine(new_pc)
+      printLog("Routine ready")
+      ret_value = loop(main_memory)
+      main_memory.drawWindows()
+      printLog("Callback called during read, ret value:", ret_value)
+    else:
+      ret_value = 0
+    # If callback returns true, we escape the textpad
+    # and let the rest of the code do the prompt cleanup
+    if ret_value == 1:
+      main_memory.cursesCallbackValue = ret_value
+      ch = curses.ascii.BEL
+  return ch
 
 def printTrace(*string, end=''):
   if TRACEPRINT:
@@ -148,7 +175,9 @@ class Instruction:
 
   def run(self, main_memory):
     printTrace("Running opcode: " + str(self.my_byte) + " " + str(self.opcode), end="\n")
-    self.func(self)
+    end_loop = self.func(self)
+    printLog("end_loop value:", end_loop)
+    return end_loop
 
   def print_debug(self):
     printLog("Printing instr debug")
@@ -175,6 +204,7 @@ class RoutineCall:
     self.stack = []
     self.called_arg_count = 0
     self.frame_pointer = 0
+    self.is_callback = False
     self.return_address = 0x0000
 
 
@@ -258,6 +288,8 @@ class Memory:
     self.currentForeground = 9 # White
     self.currentBackground = 2 # Black
     self.undo_buffer = []
+    self.cursesCallbackValue = 0
+    self.callbackRoutine = 0
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -302,7 +334,7 @@ class Memory:
       # Bit 5: Sound effects?
       flags = setNthBit(flags, 5, False) # Not yet.
       # Bit 7: Timed keyboard input?
-      flags = setNthBit(flags, 7, False) # Not yet. Border Zone requires it.
+      flags = setNthBit(flags, 7, True) # Kind of!
       self.mem[0x01] = flags
       printLog("flags set: " + bin(self.mem[0x01]))
 
@@ -718,14 +750,37 @@ class Memory:
     target_character = self.getZsciiCharacter(character)
     self.printToStream(target_character, '')
 
-  def handleInput(self, length):
+  def handleInput(self, length, time=0, routine=0):
+    global input_win
+
+    if input_win is not None: # Deal with nested Read calls... This is bad.
+      input_win.clear()
+      del input_win
+      stdscr.touchwin()
+      stdscr.refresh()
+      input_win = None
+
     y, x = stdscr.getyx()
     maxy, maxx = stdscr.getmaxyx()
     length = min(length, maxx - x - 2) # Not exactly conforming to standard here...
-    inputWin = stdscr.subwin(1, length, y, x)
-    tb = curses.textpad.Textbox(inputWin)
-    text = tb.edit()
-    del inputWin
+    input_win = curses.newwin(1, length, y, x)
+
+    if time != 0 and routine != 0:
+      input_win.timeout(100*time) # rate passed is time/10, timeout is in milliseconds...
+      self.callbackRoutine = routine
+    tb = curses.textpad.Textbox(input_win)
+    text = tb.edit(cursesValidator)
+    if self.callbackRoutine and self.cursesCallbackValue:
+      # We've come out of the text and the callback was 1, we need to
+      # wipe the input.
+      printLog("handleInput: Clear the input")
+      input_win.clear()
+      text = None
+      self.callbackRoutine = 0
+      self.cursesCallbackValue = 0
+      self.refreshWindows()
+    del input_win
+    input_win = None
     return text
 
   def copyTable(self, fromAddr, toAddr, size):
@@ -802,11 +857,13 @@ class Memory:
     if len(decoded_opers) > 2:
       time = decoded_opers[2]
       routine = decoded_opers[3]
-      raise Exception("read with callback - not implemented")
+    else:
+      time = 0
+      routine = 0
 
     maxLen = self.getTextBufferLength(text_buffer_address)
     if (self.active_input_stream == 0):
-      string = self.handleInput(maxLen)
+      string = self.handleInput(maxLen, time, routine)
     else:
       # Get next line from file... if we run out of lines
       # or the file doesn't exist, go back to the old input method
@@ -820,16 +877,20 @@ class Memory:
         self.refreshWindows()
         string = self.handleInput(maxLen)
 
-    self.printToCommandStream(string, '\n')
-    self.printToStream(string, '\n')
-    self.writeToTextBuffer(string, text_buffer_address)
-    # Parsing is option in v5+:
-    if parse_buffer_address > 0:
-      self.parseString(string, parse_buffer_address, text_buffer_address)
+    if string is not None:
+      self.printToCommandStream(string, '\n')
+      self.printToStream(string, '\n')
+      self.writeToTextBuffer(string, text_buffer_address)
+      # Parsing is option in v5+:
+      if parse_buffer_address > 0:
+        self.parseString(string, parse_buffer_address, text_buffer_address)
 
     # TODO: Handle function keys and timeouts
     if self.version > 4:
-      self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
+      if string is not None:
+        self.setVariable(instruction.store_variable, 13) # Hardcode newline terminator for now
+      else:
+        self.setVariable(instruction.store_variable, 0) # Hardcode timeout
 
     self.pc += instruction.instr_length
 
@@ -995,7 +1056,7 @@ class Memory:
     target_stack_frame = decoded_opers[1]
     while (self.routine_callstack[-1].frame_pointer != target_stack_frame):
       self.routine_callstack.pop()
-    self.ret_helper(instruction, ret_val)
+    return self.ret_helper(instruction, ret_val)
 
   def catch(self, instruction):
     printLog("catch")
@@ -1267,7 +1328,7 @@ class Memory:
     # Return value in parameter
     printLog("ret")
     decoded_opers  = self.decodeOperands(instruction)
-    self.ret_helper(instruction, decoded_opers[0])
+    return self.ret_helper(instruction, decoded_opers[0])
 
   def nop(self, instruction):
     # No operation - do nothing
@@ -1276,7 +1337,7 @@ class Memory:
   def ret_popped(self, instruction):
     # Return bottom of stack
     printLog("ret_popped")
-    self.ret_helper(instruction, self.getVariable(0))
+    return self.ret_helper(instruction, self.getVariable(0))
 
   def save(self, instruction):
     printLog("save")
@@ -1363,12 +1424,12 @@ class Memory:
   def rtrue(self, instruction):
     # Return true
     printLog("rtrue")
-    self.ret_helper(instruction, 1)
+    return self.ret_helper(instruction, 1)
 
   def rfalse(self, instruction):
     # Return false
     printLog("rfalse")
-    self.ret_helper(instruction, 0)
+    return self.ret_helper(instruction, 0)
 
   def ret_helper(self, instruction, ret_val):
     # Pop the current routine so setVariable is targeting the right set of locals
@@ -1381,6 +1442,9 @@ class Memory:
     # kick execution home - stack is scope limited to the routine so no need to
     # do anything with it.
     self.pc = current_routine.return_address
+    if current_routine.is_callback:
+      printLog("Callback return:", ret_val)
+      return ret_val
 
   def piracy(self, instruction):
     printLog("piracy")
@@ -1895,25 +1959,21 @@ class Memory:
     self.setVariable(instruction.store_variable, addr_value)
     self.handleJumpDestination(word_found, instruction)
 
-  def call(self, instruction):
-    printLog("Routine call during run")
-    decoded_opers = self.decodeOperands(instruction)
-    # First operand is calling address
-    calling_addr = decoded_opers[0]
-    # Check for address 0
-    if (calling_addr == 0):
-      self.setVariable(instruction.store_variable, 0)
-      self.pc += instruction.instr_length
-      return
-
+  def buildCallbackRoutineCall(self, address, instruction=None, decoded_opers=None):
     # Create a new routine object
     new_routine = RoutineCall()
     # Grab the return addr
-    new_routine.return_address = self.pc + instruction.instr_length
-    new_routine.store_variable = instruction.store_variable
+    if instruction:
+      new_routine.return_address = self.pc + instruction.instr_length
+      new_routine.store_variable = instruction.store_variable
+      new_routine.is_callback = False
+    else:
+      new_routine.return_address = self.pc # Come back to where we left off
+      new_routine.store_variable = None
+      new_routine.is_callback = True
     new_routine.stack_state = list(self.stack) # ??? Is this right?
     new_routine.frame_pointer = len(self.routine_callstack)
-    routine_address = self.unpackAddress(calling_addr, True)
+    routine_address = self.unpackAddress(address, True)
     printLog("Routine address: " + hex(routine_address))
     # How many local variables?
     local_var_count = self.getByte(routine_address)
@@ -1930,12 +1990,20 @@ class Memory:
     printLog("Locals before operand set", new_routine.local_variables)
     # Now set the locals as per the operands
     # Throw away 'extra' operands
-    decoded_opers.pop(0)
-    for index, operand in enumerate(decoded_opers):
-      if index >= len(new_routine.local_variables):
-        break
-      new_routine.local_variables[index] = operand
-    new_routine.called_arg_count = len(decoded_opers)
+    if instruction:
+      decoded_opers.pop(0)
+      for index, operand in enumerate(decoded_opers):
+        if index >= len(new_routine.local_variables):
+          break
+        new_routine.local_variables[index] = operand
+      new_routine.called_arg_count = len(decoded_opers)
+    else:
+      new_routine.called_arg_count = 0
+
+    # Finally, add the routine to the stack
+    self.routine_callstack.append(new_routine)
+    printLog(self.routine_callstack)
+    new_routine.print_debug()
 
     printLog("Locals after operand set", new_routine.local_variables)
 
@@ -1951,13 +2019,27 @@ class Memory:
       new_pc += 2 * local_var_count
 
     printLog("Next instruction at: " + hex(new_pc))
+
+    return new_routine, new_pc
+
+  def callRoutine(self, new_pc):
     self.pc = new_pc
 
-    # Finally, add the routine to the stack
-    self.routine_callstack.append(new_routine)
-    printLog(self.routine_callstack)
+  def call(self, instruction):
+    printLog("Routine call during run")
+    decoded_opers = self.decodeOperands(instruction)
+    # First operand is calling address
+    calling_addr = decoded_opers[0]
+    # Check for address 0
+    if (calling_addr == 0):
+      self.setVariable(instruction.store_variable, 0)
+      self.pc += instruction.instr_length
+      return
 
-    new_routine.print_debug()
+    # Create a new routine object
+    new_routine, new_pc = self.buildCallbackRoutineCall(calling_addr, instruction, decoded_opers)
+    self.callRoutine(new_pc)
+
 
   def quit(self, instruction):
     printLog("quit")
@@ -3246,8 +3328,11 @@ class Memory:
       y, x = self.bottomWinCursor
     elif (self.targetWindow == 1):
       y, x = self.topWinCursor
-    stdscr.move(y, x)
     stdscr.refresh()
+    if input_win is not None:
+      input_win.touchwin()
+      input_win.refresh()
+    stdscr.move(y, x)
 
   def setScreenDimensions(self):
     y, x = stdscr.getmaxyx()
@@ -3340,6 +3425,7 @@ def getOperandTypeFromBytes(byte):
 def main():
   # Setup for screen... lots of Curses rubbish
   global stdscr
+  global main_memory
   stdscr = curses.initscr()
   curses.start_color()
   curses.noecho()
@@ -3371,17 +3457,20 @@ def main():
   # before jumping into the main loop
   if (main_memory.version == 6):
     pass # TODO
-  while True:
-    loop(main_memory)
+  loop(main_memory)
 
 def loop(main_memory):
-  main_memory.print_debug()
-  instr = main_memory.getInstruction(main_memory.pc)
-  instr.print_debug()
-  instr.run(main_memory)
-  if CZECH_MODE:
-    # If running in Czech mode, we will flush output after EVERY command
-    main_memory.drawWindows()
+  while True:
+    printLog("Layer:", layer)
+    main_memory.print_debug()
+    instr = main_memory.getInstruction(main_memory.pc)
+    instr.print_debug()
+    end_loop = instr.run(main_memory)
+    if end_loop is not None:
+      return end_loop
+    if CZECH_MODE:
+      # If running in Czech mode, we will flush output after EVERY command
+      main_memory.drawWindows()
 
 if __name__ == "__main__":
   try:
