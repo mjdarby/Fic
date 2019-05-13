@@ -47,7 +47,7 @@ transcript = open('transcript.txt', 'w', buffering=1)
 commands = open('commands.txt', 'w', buffering=1)
 
 TRACEPRINT = False
-LOGPRINT = True
+LOGPRINT = False
 CZECH_MODE = False
 
 MAX_SAVE_FILE_LENGTH = 20
@@ -57,8 +57,6 @@ input_win = None
 colour_map = dict()
 main_memory = None
 
-layer = 1
-
 def callCallback():
   main_memory.callbackTriggered = True
   input_win.ungetch(curses.ascii.BEL)
@@ -67,6 +65,7 @@ def callCallback():
 def cursesValidator(ch):
   if ch == -1:
     main_memory.callbackTriggered = True
+    main_memory.callbackCurrentXPos = input_win.getyx()[1]
     ch = curses.ascii.BEL
   return ch
 
@@ -277,6 +276,7 @@ class Memory:
     self.currentBackground = 2 # Black
     self.undo_buffer = []
     self.callbackCurrentString = ""
+    self.callbackCurrentXPos = 0
     self.callbackReturnValue = 0
     self.callbackRoutine = 0
     self.callbackTriggered = False
@@ -394,6 +394,7 @@ class Memory:
   def writeToTextBuffer(self, string, address):
     string = string.lower()
     string = string.strip()
+    printLog("Text Buffer:", string)
     num_bytes = len(string)
     text_offset = 1
 
@@ -467,6 +468,8 @@ class Memory:
       self.mem[address+2+eff_idx+2] = len(token)
       # Give position of word in fourth byte
       string_idx = string.find(token)+1
+      if self.version > 4:
+        string_idx += 1 # Because of the size byte in the text buffer
       self.mem[address+2+eff_idx+3] = string_idx
 
   def tokenToDictionaryLookup(self, string):
@@ -741,10 +744,9 @@ class Memory:
     self.printToStream(target_character, '')
 
   def handleInput(self, length, time=0, routine=0, currentString=""):
-    global input_win
+    global input_win # :(
 
-    if input_win is not None: # Deal with nested Read calls... This is bad.
-      input_win.clear()
+    if input_win is not None: # Tidy up the old input window
       del input_win
       stdscr.touchwin()
       stdscr.refresh()
@@ -753,16 +755,14 @@ class Memory:
     y, x = stdscr.getyx()
     maxy, maxx = stdscr.getmaxyx()
     length = min(length, maxx - x - 2) # Not exactly conforming to standard here...
-    input_win = curses.newwin(1, length, y, x)
+    input_win = stdscr.subwin(1, length, y, x)
     input_win.addstr(currentString)
-
+    input_win.move(0, self.callbackCurrentXPos)
     if time != 0 and routine != 0:
       self.callbackRoutine = routine
       input_win.timeout(time) # rate passed is time/10, timeout is in milliseconds...
     tb = curses.textpad.Textbox(input_win)
     text = tb.edit(cursesValidator)
-    del input_win
-    input_win = None
     return text
 
   def copyTable(self, fromAddr, toAddr, size):
@@ -824,12 +824,16 @@ class Memory:
     printLog("read")
     decoded_opers  = self.decodeOperands(instruction)
 
+    current_string = ""
     # See if we're coming back as part of the callback
     if self.callbackTriggered:
       self.callbackTriggered = False # Don't let it run again
+      current_string = self.callbackCurrentString
       if self.callbackReturnValue == 1:
-        # Premature quit
+        # Premature quit of read
         # self.eraseInput() ???
+        self.callbackCurrentXPos = 0
+        self.callbackCurrentString = ""
         self.setVariable(instruction.store_variable, 0)
         self.pc += instruction.instr_length
         return
@@ -856,8 +860,9 @@ class Memory:
       routine = 0
 
     maxLen = self.getTextBufferLength(text_buffer_address)
+    iy, ix = stdscr.getyx()
     if (self.active_input_stream == 0):
-      string = self.handleInput(maxLen, time, routine, self.callbackCurrentString)
+      string = self.handleInput(maxLen, time, routine, current_string)
     else:
       # Get next line from file... if we run out of lines
       # or the file doesn't exist, go back to the old input method
@@ -871,21 +876,24 @@ class Memory:
         self.refreshWindows()
         string = self.handleInput(maxLen)
 
+    # Write what we have - seems necessary for interrupts in ver 5?
+    self.writeToTextBuffer(string, text_buffer_address)
+
     if self.callbackTriggered:
+      # Go do the routine, then come back
       callback_routine, new_pc = self.buildCallbackRoutineCall(self.callbackRoutine)
       self.callbackCurrentString = string.strip()
       self.callRoutine(new_pc)
-      # Go do the routine, then come back
       return
     else:
       # Input terminated normally, kill any running callbacks
       self.callbackRoutine = 0
       self.callbackReturnValue = 0
       self.callbackCurrentString = ""
+      self.callbackCurrentXPos = 0
 
     self.printToCommandStream(string, '\n')
     self.printToStream(string, '\n')
-    self.writeToTextBuffer(string, text_buffer_address)
     # Parsing is option in v5+:
     if parse_buffer_address > 0:
       self.parseString(string, parse_buffer_address, text_buffer_address)
@@ -3330,10 +3338,11 @@ class Memory:
       y, x = self.bottomWinCursor
     elif (self.targetWindow == 1):
       y, x = self.topWinCursor
-    stdscr.refresh()
     if input_win is not None:
       input_win.touchwin()
       input_win.refresh()
+    stdscr.touchwin()
+    stdscr.refresh()
     stdscr.move(y, x)
 
   def setScreenDimensions(self):
@@ -3463,7 +3472,6 @@ def main():
 
 def loop(main_memory):
   while True:
-    printLog("Layer:", layer)
     main_memory.print_debug()
     instr = main_memory.getInstruction(main_memory.pc)
     instr.print_debug()
