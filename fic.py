@@ -280,6 +280,8 @@ class Memory:
     self.callbackReturnValue = 0
     self.callbackRoutine = 0
     self.callbackTriggered = False
+    self.opcodeMap = {}
+    self.populateOpcodeMap()
     printLog(self.version)
     printLog(self.static)
     printLog(self.high)
@@ -348,6 +350,130 @@ class Memory:
   def setDefaultColours(self):
     self.mem[0x2c] = 2 # Default black background
     self.mem[0x2d] = 9 # Default white foreground
+
+  def populateOpcodeMap(self):
+    self.opcodeMap[Operand.TwoOP] = {}
+    self.opcodeMap[Operand.TwoOP][0x1] = ("je", self.je)
+    self.opcodeMap[Operand.TwoOP][0x2] = ("jl", self.jl)
+    self.opcodeMap[Operand.TwoOP][0x3] = ("jg", self.jg)
+    self.opcodeMap[Operand.TwoOP][0x4] = ("dec_chk", self.dec_chk)
+    self.opcodeMap[Operand.TwoOP][0x5] = ("inc_chk", self.inc_chk)
+    self.opcodeMap[Operand.TwoOP][0x6] = ("jin", self.jin)
+    self.opcodeMap[Operand.TwoOP][0x7] = ("test", self.test)
+    self.opcodeMap[Operand.TwoOP][0x8] = ("or", self.or_1)
+    self.opcodeMap[Operand.TwoOP][0x9] = ("and", self.and_1)
+    self.opcodeMap[Operand.TwoOP][0xa] = ("test_attr", self.test_attr)
+    self.opcodeMap[Operand.TwoOP][0xb] = ("set_attr", self.set_attr)
+    self.opcodeMap[Operand.TwoOP][0xc] = ("clear_attr", self.clear_attr)
+    self.opcodeMap[Operand.TwoOP][0xd] = ("store", self.store)
+    self.opcodeMap[Operand.TwoOP][0xe] = ("insert_obj", self.insert_obj)
+    self.opcodeMap[Operand.TwoOP][0xf] = ("loadw", self.loadw)
+    self.opcodeMap[Operand.TwoOP][0x10] = ("loadb", self.loadb)
+    self.opcodeMap[Operand.TwoOP][0x11] = ("get_prop", self.get_prop)
+    self.opcodeMap[Operand.TwoOP][0x12] = ("get_prop_addr", self.get_prop_addr)
+    self.opcodeMap[Operand.TwoOP][0x13] = ("get_next_prop", self.get_next_prop)
+    self.opcodeMap[Operand.TwoOP][0x14] = ("add", self.add)
+    self.opcodeMap[Operand.TwoOP][0x15] = ("sub", self.sub)
+    self.opcodeMap[Operand.TwoOP][0x16] = ("mul", self.mul)
+    self.opcodeMap[Operand.TwoOP][0x17] = ("div", self.div)
+    self.opcodeMap[Operand.TwoOP][0x18] = ("mod", self.mod)
+    self.opcodeMap[Operand.TwoOP][0x19] = ("call_2s", self.call)
+    self.opcodeMap[Operand.TwoOP][0x1A] = ("call_2n", self.call)
+    self.opcodeMap[Operand.TwoOP][0x1B] = ("set_colour", self.set_colour)
+    self.opcodeMap[Operand.TwoOP][0x1C] = ("throw", self.throw)
+
+    self.opcodeMap[Operand.OneOP] = {}
+    self.opcodeMap[Operand.OneOP][0x0] = ("jz", self.jz)
+    self.opcodeMap[Operand.OneOP][0x1] = ("get_sibling", self.get_sibling)
+    self.opcodeMap[Operand.OneOP][0x2] = ("get_child", self.get_child)
+    self.opcodeMap[Operand.OneOP][0x3] = ("get_parent", self.get_parent)
+    self.opcodeMap[Operand.OneOP][0x4] = ("get_prop_len", self.get_prop_len)
+    self.opcodeMap[Operand.OneOP][0x5] = ("inc", self.inc)
+    self.opcodeMap[Operand.OneOP][0x6] = ("dec", self.dec)
+    self.opcodeMap[Operand.OneOP][0x7] = ("print_addr", self.print_addr)
+    self.opcodeMap[Operand.OneOP][0x8] = ("call_1s", self.call)
+    self.opcodeMap[Operand.OneOP][0x9] = ("remove_obj", self.remove_obj)
+    self.opcodeMap[Operand.OneOP][0xa] = ("print_obj", self.print_obj)
+    self.opcodeMap[Operand.OneOP][0xb] = ("ret", self.ret)
+    self.opcodeMap[Operand.OneOP][0xc] = ("jump", self.jump)
+    self.opcodeMap[Operand.OneOP][0xd] = ("print_paddr", self.print_paddr)
+    self.opcodeMap[Operand.OneOP][0xe] = ("load", self.load)
+    if self.version < 5:
+      self.opcodeMap[Operand.OneOP][0xf] = ("not", self.not_1)
+    else:
+      self.opcodeMap[Operand.OneOP][0xf] = ("call_1n", self.call)
+
+    self.opcodeMap[Operand.ZeroOP] = {}
+    self.opcodeMap[Operand.ZeroOP][0x0] = ("rtrue", self.rtrue)
+    self.opcodeMap[Operand.ZeroOP][0x1] = ("rfalse", self.rfalse)
+    self.opcodeMap[Operand.ZeroOP][0x2] = ("print", self.print_1)
+    self.opcodeMap[Operand.ZeroOP][0x3] = ("print_ret", self.print_ret)
+    self.opcodeMap[Operand.ZeroOP][0x4] = ("nop", self.nop)
+    if self.version < 4:
+      self.opcodeMap[Operand.ZeroOP][0x5] = ("save1", self.save)
+    else:
+      self.opcodeMap[Operand.ZeroOP][0x5] = ("save4", self.save)
+    if self.version < 4:
+      self.opcodeMap[Operand.ZeroOP][0x6] = ("restore1", self.restore)
+    else:
+      self.opcodeMap[Operand.ZeroOP][0x6] = ("restore4", self.restore)
+    self.opcodeMap[Operand.ZeroOP][0x7] = ("restart", self.restart)
+    self.opcodeMap[Operand.ZeroOP][0x8] = ("ret_popped", self.ret_popped)
+    if self.version < 5:
+      self.opcodeMap[Operand.ZeroOP][0x9] = ("pop", self.pop)
+    else:
+      self.opcodeMap[Operand.ZeroOP][0x9] = ("catch", self.catch)
+    self.opcodeMap[Operand.ZeroOP][0xa] = ("quit", self.quit)
+    self.opcodeMap[Operand.ZeroOP][0xb] = ("new_line", self.new_line)
+    self.opcodeMap[Operand.ZeroOP][0xc] = ("show_status", self.show_status)
+    self.opcodeMap[Operand.ZeroOP][0xd] = ("verify", self.verify)
+    self.opcodeMap[Operand.ZeroOP][0xf] = ("piracy", self.piracy)
+
+    self.opcodeMap[Operand.VAR] = {}
+    self.opcodeMap[Operand.VAR][224] = ("call", self.call)
+    self.opcodeMap[Operand.VAR][225] = ("storew", self.storew)
+    self.opcodeMap[Operand.VAR][226] = ("storeb", self.storeb)
+    self.opcodeMap[Operand.VAR][227] = ("put_prop", self.put_prop)
+    if self.version < 5:
+      self.opcodeMap[Operand.VAR][228] = ("read", self.read)
+    else:
+      self.opcodeMap[Operand.VAR][228] = ("read5", self.read)
+    self.opcodeMap[Operand.VAR][229] = ("print_char", self.print_char)
+    self.opcodeMap[Operand.VAR][230] = ("print_num", self.print_num)
+    self.opcodeMap[Operand.VAR][231] = ("random", self.random)
+    self.opcodeMap[Operand.VAR][232] = ("push", self.push)
+    self.opcodeMap[Operand.VAR][233] = ("pull", self.pull)
+    self.opcodeMap[Operand.VAR][234] = ("split_window", self.split_window)
+    self.opcodeMap[Operand.VAR][235] = ("set_window", self.set_window)
+    self.opcodeMap[Operand.VAR][236] = ("call_vs2", self.call)
+    self.opcodeMap[Operand.VAR][237] = ("erase_window", self.erase_window)
+    self.opcodeMap[Operand.VAR][238] = ("erase_line", self.erase_line)
+    self.opcodeMap[Operand.VAR][239] = ("set_cursor", self.set_cursor)
+    self.opcodeMap[Operand.VAR][240] = ("get_cursor", self.get_cursor)
+    self.opcodeMap[Operand.VAR][241] = ("set_text_style", self.set_text_style)
+    self.opcodeMap[Operand.VAR][242] = ("buffer_mode", self.buffer_mode)
+    self.opcodeMap[Operand.VAR][243] = ("output_stream", self.output_stream)
+    self.opcodeMap[Operand.VAR][244] = ("input_stream", self.input_stream)
+    self.opcodeMap[Operand.VAR][245] = ("sound_effect", self.sound_effect)
+    self.opcodeMap[Operand.VAR][246] = ("read_char", self.read_char)
+    self.opcodeMap[Operand.VAR][247] = ("scan_table", self.scan_table)
+    self.opcodeMap[Operand.VAR][248] = ("not", self.not_1)
+    self.opcodeMap[Operand.VAR][249] = ("call_vn", self.call)
+    self.opcodeMap[Operand.VAR][250] = ("call_vn2", self.call)
+    self.opcodeMap[Operand.VAR][251] = ("tokenise", self.tokenise)
+    self.opcodeMap[Operand.VAR][252] = ("encode_text", self.encode_text)
+    self.opcodeMap[Operand.VAR][253] = ("copy_table", self.copy_table)
+    self.opcodeMap[Operand.VAR][254] = ("print_table", self.print_table)
+    self.opcodeMap[Operand.VAR][255] = ("check_arg_count", self.check_arg_count)
+
+    self.opcodeMap["EXT"] = {}
+    self.opcodeMap["EXT"][0x0] = ("save4", self.save)
+    self.opcodeMap["EXT"][0x1] = ("restore4", self.restore)
+    self.opcodeMap["EXT"][0x2] = ("log_shift", self.log_shift)
+    self.opcodeMap["EXT"][0x3] = ("art_shift", self.art_shift)
+    self.opcodeMap["EXT"][0x4] = ("set_font", self.set_font)
+    self.opcodeMap["EXT"][0x9] = ("save_undo", self.save_undo)
+    self.opcodeMap["EXT"][0xA] = ("restore_undo", self.restore_undo)
 
   # read dictionary
   def readStandardDictionary(self):
@@ -2270,7 +2396,7 @@ class Memory:
     func = None
     operand_types = []
     if (self.version >= 5 and (first_opcode_byte == 0xbe)):
-      opcode, func = self.getExtendedOpcode(self.mem[next_byte])
+      opcode, func = self.opcodeMap["EXT"][self.mem[next_byte]]
       form = Form.Extended
       next_byte += 1
 
@@ -2804,204 +2930,14 @@ class Memory:
     printLog("getOpcode")
     printLog("last five bits: " + hex(byte & 0b00011111))
     printLog("last four bits: " + hex(byte & 0b00001111))
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1):
-      return "je", self.je
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x2):
-      return "jl", self.jl
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x3):
-      return "jg", self.jg
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x4):
-      return "dec_chk", self.dec_chk
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x5):
-      return "inc_chk", self.inc_chk
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x6):
-      return "jin", self.jin
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x7):
-      return "test", self.test
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x8):
-      return "or", self.or_1
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x9):
-      return "and", self.and_1
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xa):
-      return "test_attr", self.test_attr
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xb):
-      return "set_attr", self.set_attr
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xc):
-      return "clear_attr", self.clear_attr
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xd):
-      return "store", self.store
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xe):
-      return "insert_obj", self.insert_obj
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0xf):
-      return "loadw", self.loadw
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x10):
-      return "loadb", self.loadb
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x11):
-      return "get_prop", self.get_prop
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x12):
-      return "get_prop_addr", self.get_prop_addr
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x13):
-      return "get_next_prop", self.get_next_prop
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x14):
-      return "add", self.add
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x15):
-      return "sub", self.sub
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x16):
-      return "mul", self.mul
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x17):
-      return "div", self.div
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x18):
-      return "mod", self.mod
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x19):
-      return "call_2s", self.call
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1A):
-      return "call_2n", self.call
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1B):
-      return "set_colour", self.set_colour
-    if (operand_type == Operand.TwoOP and byte & 0b00011111 == 0x1C):
-      return "throw", self.throw
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x0):
-      return "jz", self.jz
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x1):
-      return "get_sibling", self.get_sibling
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x2):
-      return "get_child", self.get_child
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x3):
-      return "get_parent", self.get_parent
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x4):
-      return "get_prop_len", self.get_prop_len
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x5):
-      return "inc", self.inc
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x6):
-      return "dec", self.dec
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x7):
-      return "print_addr", self.print_addr
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x8):
-      return "call_1s", self.call
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0x9):
-      return "remove_obj", self.remove_obj
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xa):
-      return "print_obj", self.print_obj
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xb):
-      return "ret", self.ret
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xc):
-      return "jump", self.jump
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xd):
-      return "print_paddr", self.print_paddr
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xe):
-      return "load", self.load
-    if (operand_type == Operand.OneOP and byte & 0b00001111 == 0xf):
-      if self.version < 5:
-        return "not", self.not_1
-      else:
-        return "call_1n", self.call
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x0):
-      return "rtrue", self.rtrue
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x1):
-      return "rfalse", self.rfalse
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x2):
-      return "print", self.print_1
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x3):
-      return "print_ret", self.print_ret
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x4):
-      return "nop", self.nop
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x5):
-      if self.version < 4:
-        return "save1", self.save
-      else:
-        return "save4", self.save
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x6):
-      if self.version < 4:
-        return "restore1", self.restore
-      else:
-        return "restore4", self.restore
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x7):
-      return "restart", self.restart
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x8):
-      return "ret_popped", self.ret_popped
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0x9):
-      if self.version < 5:
-        return "pop", self.pop
-      else:
-        return "catch", self.catch
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xa):
-      return "quit", self.quit
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xb):
-      return "new_line", self.new_line
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xc):
-      return "show_status", self.show_status
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xd):
-      return "verify", self.verify
-    if (operand_type == Operand.ZeroOP and byte & 0b00001111 == 0xf):
-      return "piracy", self.piracy
-    if (operand_type == Operand.VAR and byte == 224):
-        return "call", self.call
-    if (operand_type == Operand.VAR and byte == 225):
-      return "storew", self.storew
-    if (operand_type == Operand.VAR and byte == 226):
-      return "storeb", self.storeb
-    if (operand_type == Operand.VAR and byte == 227):
-      return "put_prop", self.put_prop
-    if (operand_type == Operand.VAR and byte == 228):
-      if self.version < 5:
-        return "read", self.read
-      else:
-        return "read5", self.read
-    if (operand_type == Operand.VAR and byte == 229):
-      return "print_char", self.print_char
-    if (operand_type == Operand.VAR and byte == 230):
-      return "print_num", self.print_num
-    if (operand_type == Operand.VAR and byte == 231):
-      return "random", self.random
-    if (operand_type == Operand.VAR and byte == 232):
-      return "push", self.push
-    if (operand_type == Operand.VAR and byte == 233):
-      return "pull", self.pull
-    if (operand_type == Operand.VAR and byte == 234):
-      return "split_window", self.split_window
-    if (operand_type == Operand.VAR and byte == 235):
-      return "set_window", self.set_window
-    if (operand_type == Operand.VAR and byte == 236):
-      return "call_vs2", self.call
-    if (operand_type == Operand.VAR and byte == 237):
-      return "erase_window", self.erase_window
-    if (operand_type == Operand.VAR and byte == 238):
-      return "erase_line", self.erase_line
-    if (operand_type == Operand.VAR and byte == 239):
-      return "set_cursor", self.set_cursor
-    if (operand_type == Operand.VAR and byte == 240):
-      return "get_cursor", self.get_cursor
-    if (operand_type == Operand.VAR and byte == 241):
-      return "set_text_style", self.set_text_style
-    if (operand_type == Operand.VAR and byte == 242):
-      return "buffer_mode", self.buffer_mode
-    if (operand_type == Operand.VAR and byte == 243):
-      return "output_stream", self.output_stream
-    if (operand_type == Operand.VAR and byte == 244):
-      return "input_stream", self.input_stream
-    if (operand_type == Operand.VAR and byte == 245):
-      return "sound_effect", self.sound_effect
-    if (operand_type == Operand.VAR and byte == 246):
-      return "read_char", self.read_char
-    if (operand_type == Operand.VAR and byte == 247):
-      return "scan_table", self.scan_table
-    if (operand_type == Operand.VAR and byte == 248):
-      return "not", self.not_1
-    if (operand_type == Operand.VAR and byte == 249):
-      return "call_vn", self.call
-    if (operand_type == Operand.VAR and byte == 250):
-      return "call_vn2", self.call
-    if (operand_type == Operand.VAR and byte == 251):
-      return "tokenise", self.tokenise
-    if (operand_type == Operand.VAR and byte == 252):
-      return "encode_text", self.encode_text
-    if (operand_type == Operand.VAR and byte == 253):
-      return "copy_table", self.copy_table
-    if (operand_type == Operand.VAR and byte == 254):
-      return "print_table", self.print_table
-    if (operand_type == Operand.VAR and byte == 255):
-      return "check_arg_count", self.check_arg_count
-    raise Exception("Missing opcode: " + hex(byte))
+    key = byte
+    if operand_type == Operand.TwoOP:
+      key = byte & 0b00011111
+    elif operand_type == Operand.OneOP:
+      key = byte & 0b00001111
+    elif operand_type == Operand.ZeroOP:
+      key = byte & 0b00001111
+    return self.opcodeMap[operand_type][key]
 
   def getExtendedOpcode(self, byte):
     printLog("ExtendedOpcode")
