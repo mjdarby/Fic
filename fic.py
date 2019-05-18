@@ -2880,7 +2880,7 @@ class Memory:
         return [OperandType.Variable]
       elif (opcode_bytes & 0b00010000 == 0b00010000):
         return [OperandType.Small]
-      elif (opcode_bytes & 0b00000000 == 0b00000000):
+      else:
         return [OperandType.Large]
     elif (form == Form.Long):
       operand_types = []
